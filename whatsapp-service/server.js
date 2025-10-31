@@ -1,15 +1,16 @@
 /**
- * WhatsApp Web API Service - CORRECTED VERSION
- * Fixed all Baileys API issues
+ * WhatsApp Web API Service - ES MODULE VERSION
+ * Fixed Baileys ES Module compatibility
  */
 
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const express = require('express');
-const QRCode = require('qrcode');
-const pino = require('pino');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-require('dotenv').config();
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import express from 'express';
+import QRCode from 'qrcode';
+import pino from 'pino';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;

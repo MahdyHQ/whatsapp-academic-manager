@@ -3,7 +3,8 @@
  * Fixed Baileys ES Module compatibility + Enhanced Error Logging
  */
 
-import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import pkg from '@whiskeysockets/baileys';
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } = pkg;
 import express from 'express';
 import QRCode from 'qrcode';
 import pino from 'pino';

@@ -1,0 +1,17 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# Authentication data
+auth_info/
+auth_state.json
+*.data.json
+
+# QR code
+qr.png
+
+# Logs
+*.log

@@ -11,6 +11,13 @@ import pino from 'pino';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
+import { Buffer } from 'buffer';
+
+// Make crypto and Buffer globally available for Baileys
+globalThis.crypto = crypto;
+globalThis.Buffer = Buffer;
+
 dotenv.config();
 
 const app = express();

@@ -2,6 +2,7 @@
   "name": "whatsapp-baileys-service",
   "version": "1.0.0",
   "description": "WhatsApp Web API Service using Baileys for Academic Manager",
+  "type":"module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

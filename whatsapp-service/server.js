@@ -1368,7 +1368,7 @@ app.get('/api/status', (req, res) => {
     });
 });
 
-app.get('/api/session-info', authenticateAPIKey, (req, res) => {
+app.get('/api/session-info', (req, res) => {
     try {
         const sessionStats = getSessionStats();
         

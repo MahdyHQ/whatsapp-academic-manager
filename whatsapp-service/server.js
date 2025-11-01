@@ -1,10 +1,10 @@
 /**
- * WhatsApp Web API Service - Railway Optimized Edition
- * Enhanced UI/UX with Professional Icons + Phone Authentication
- * With Session Backup & Auto-Restore (No Volumes Required)
+ * WhatsApp Web API Service - Complete Edition
+ * Enhanced UI/UX with WhatsApp Theme Colors + Phone Authentication
+ * With Session Backup & Auto-Restore (Platform Independent)
  * 
  * @author MahdyHQ
- * @version 2.3.0
+ * @version 2.4.0
  * @date 2025-11-01
  */
 
@@ -38,9 +38,9 @@ const PORT = process.env.PORT || 3000;
 // Use /tmp for Railway - persists during deployment
 const AUTH_DIR = '/tmp/auth_info';
 
-// Enhanced CORS for your frontend
+// Enhanced CORS - Allow all origins
 app.use(cors({
-    origin: '*', // Allow all origins (change to specific domain in production)
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
     credentials: true
@@ -64,14 +64,14 @@ let sessionBackup = null;
 const BACKUP_FILE = path.join(__dirname, '../session_backup.json');
 
 // ==================== PHONE AUTHENTICATION STORAGE ====================
-const otpStorage = new Map(); // Stores {phone: {code, expiresAt, attempts}}
-const sessionTokens = new Map(); // Stores {token: {phone, createdAt, expiresAt}}
+const otpStorage = new Map();
+const sessionTokens = new Map();
 
 // Authorized phone numbers - Load from env or use default
 const authorizedPhones = new Set(
     process.env.AUTHORIZED_PHONES 
         ? process.env.AUTHORIZED_PHONES.split(',').map(p => p.trim())
-        : ['+201155547529'] // Your default phone
+        : ['+201155547529']
 );
 
 logger.info(`📱 Authorized phones: ${Array.from(authorizedPhones).join(', ')}`);
@@ -80,19 +80,15 @@ logger.info(`📱 Authorized phones: ${Array.from(authorizedPhones).join(', ')}`
 function getIconSVG(iconName, className = 'w-6 h-6') {
     const icons = {
         check: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
-        wifi: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>`,
         phone: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>`,
         database: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>`,
         shield: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`,
         refresh: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>`,
-        loader: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>`,
         qrcode: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><rect x="3" y="3" width="5" height="5"></rect><rect x="16" y="3" width="5" height="5"></rect><rect x="3" y="16" width="5" height="5"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg>`,
         file: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`,
         clock: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
         info: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`,
-        alert: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
         home: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`,
-        lock: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`,
     };
     return icons[iconName] || '';
 }
@@ -470,7 +466,7 @@ app.post('/api/auth/request-otp', async (req, res) => {
                 success: false, 
                 error: 'WhatsApp service is not connected. Please try again later.',
                 status: connectionState,
-                hint: 'Administrator needs to scan QR code on Railway service'
+                hint: 'Administrator needs to scan QR code'
             });
         }
         
@@ -499,7 +495,7 @@ app.post('/api/auth/request-otp', async (req, res) => {
                 message: 'Verification code sent to your WhatsApp',
                 expiresIn: 300,
                 phone: phone,
-                // For development only - remove in production
+                // For development only
                 dev_otp: process.env.NODE_ENV === 'development' ? otp : undefined
             });
         } catch (sendError) {
@@ -743,7 +739,7 @@ app.get('/', (req, res) => {
         service: 'WhatsApp Academic Manager API',
         status: connectionState,
         phone: connectedPhone,
-        version: '2.3.0 - Railway Optimized + Phone Auth',
+        version: '2.4.0 - WhatsApp Themed + Complete Auth',
         author: 'MahdyHQ',
         timestamp: new Date().toISOString(),
         session: {
@@ -770,13 +766,17 @@ app.get('/', (req, res) => {
     });
 });
 
-// [Continue with existing QR route and other routes...]
-// I'll provide the rest in the next message due to length
-// ==================== CONTINUED FROM PART 1 ====================
-
-// Existing /qr route with BOTH QR and Phone Login options
+// QR CODE ROUTE - WHATSAPP THEMED
 app.get('/qr', async (req, res) => {
     try {
+        const whatsappColors = {
+            primary: '#25D366',      // WhatsApp Green
+            secondary: '#128C7E',    // Dark Green
+            background: '#DCF8C6',   // Light Green
+            dark: '#075E54',         // Darker Green
+            light: '#ECE5DD'         // Light Gray
+        };
+        
         if (connectionState === 'connected') {
             const sessionStats = getSessionStats();
             
@@ -791,8 +791,8 @@ app.get('/qr', async (req, res) => {
                         * { margin: 0; padding: 0; box-sizing: border-box; }
                         
                         body {
-                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                            background: linear-gradient(135deg, ${whatsappColors.primary} 0%, ${whatsappColors.secondary} 100%);
                             min-height: 100vh;
                             display: flex;
                             align-items: center;
@@ -802,15 +802,15 @@ app.get('/qr', async (req, res) => {
                         
                         .container {
                             background: white;
-                            border-radius: 24px;
-                            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                            border-radius: 16px;
+                            box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
                             max-width: 600px;
                             width: 100%;
                             overflow: hidden;
                         }
                         
                         .header {
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            background: linear-gradient(135deg, ${whatsappColors.primary} 0%, ${whatsappColors.secondary} 100%);
                             color: white;
                             padding: 32px;
                             text-align: center;
@@ -820,9 +820,9 @@ app.get('/qr', async (req, res) => {
                             display: inline-flex;
                             align-items: center;
                             gap: 8px;
-                            background: rgba(255, 255, 255, 0.2);
+                            background: rgba(255, 255, 255, 0.25);
                             backdrop-filter: blur(10px);
-                            padding: 12px 24px;
+                            padding: 10px 20px;
                             border-radius: 50px;
                             margin-bottom: 16px;
                             font-size: 14px;
@@ -830,32 +830,28 @@ app.get('/qr', async (req, res) => {
                         }
                         
                         .pulse {
-                            width: 12px;
-                            height: 12px;
-                            background: #4ade80;
+                            width: 10px;
+                            height: 10px;
+                            background: #fff;
                             border-radius: 50%;
                             animation: pulse 2s infinite;
                         }
                         
                         @keyframes pulse {
                             0%, 100% { opacity: 1; transform: scale(1); }
-                            50% { opacity: 0.5; transform: scale(1.1); }
+                            50% { opacity: 0.5; transform: scale(1.2); }
                         }
                         
                         h1 {
-                            font-size: 32px;
-                            font-weight: 700;
+                            font-size: 28px;
+                            font-weight: 600;
                             margin-bottom: 8px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 12px;
                         }
                         
                         .phone-display {
-                            font-size: 24px;
-                            font-weight: 600;
-                            opacity: 0.9;
+                            font-size: 22px;
+                            font-weight: 500;
+                            opacity: 0.95;
                         }
                         
                         .content { padding: 32px; }
@@ -868,46 +864,39 @@ app.get('/qr', async (req, res) => {
                         }
                         
                         .info-card {
-                            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                            background: linear-gradient(135deg, ${whatsappColors.background} 0%, ${whatsappColors.light} 100%);
                             padding: 20px;
-                            border-radius: 16px;
-                            display: flex;
-                            flex-direction: column;
-                            gap: 8px;
+                            border-radius: 12px;
+                            border-left: 4px solid ${whatsappColors.primary};
                         }
                         
                         .info-card-header {
-                            display: flex;
-                            align-items: center;
-                            gap: 8px;
-                            color: #64748b;
-                            font-size: 13px;
+                            color: ${whatsappColors.dark};
+                            font-size: 12px;
                             font-weight: 600;
                             text-transform: uppercase;
                             letter-spacing: 0.5px;
+                            margin-bottom: 8px;
                         }
                         
                         .info-card-value {
                             font-size: 20px;
                             font-weight: 700;
-                            color: #1e293b;
+                            color: ${whatsappColors.secondary};
                         }
                         
                         .feature-box {
-                            background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
-                            border-left: 4px solid #0ea5e9;
+                            background: ${whatsappColors.background};
+                            border-left: 4px solid ${whatsappColors.primary};
                             padding: 20px;
                             border-radius: 12px;
                             margin-bottom: 24px;
                         }
                         
                         .feature-box h3 {
-                            display: flex;
-                            align-items: center;
-                            gap: 12px;
                             font-size: 16px;
-                            font-weight: 700;
-                            color: #0c4a6e;
+                            font-weight: 600;
+                            color: ${whatsappColors.dark};
                             margin-bottom: 12px;
                         }
                         
@@ -922,8 +911,22 @@ app.get('/qr', async (req, res) => {
                             display: flex;
                             align-items: center;
                             gap: 8px;
-                            color: #075985;
+                            color: ${whatsappColors.secondary};
                             font-size: 14px;
+                        }
+                        
+                        .feature-list li::before {
+                            content: '✓';
+                            background: ${whatsappColors.primary};
+                            color: white;
+                            width: 20px;
+                            height: 20px;
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-weight: bold;
+                            font-size: 12px;
                         }
                         
                         .actions {
@@ -934,37 +937,35 @@ app.get('/qr', async (req, res) => {
                         .btn {
                             flex: 1;
                             padding: 14px 24px;
-                            border-radius: 12px;
+                            border-radius: 8px;
                             border: none;
                             font-size: 15px;
                             font-weight: 600;
                             cursor: pointer;
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 8px;
                             text-decoration: none;
+                            text-align: center;
                             transition: all 0.3s ease;
                         }
                         
                         .btn-primary {
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            background: ${whatsappColors.primary};
                             color: white;
                         }
                         
                         .btn-primary:hover {
+                            background: ${whatsappColors.secondary};
                             transform: translateY(-2px);
-                            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+                            box-shadow: 0 10px 20px rgba(37, 211, 102, 0.3);
                         }
                         
                         .btn-secondary {
                             background: white;
-                            color: #667eea;
-                            border: 2px solid #667eea;
+                            color: ${whatsappColors.primary};
+                            border: 2px solid ${whatsappColors.primary};
                         }
                         
                         .btn-secondary:hover {
-                            background: #667eea;
+                            background: ${whatsappColors.primary};
                             color: white;
                         }
                         
@@ -981,86 +982,50 @@ app.get('/qr', async (req, res) => {
                                 <span class="pulse"></span>
                                 <span>Connected & Active</span>
                             </div>
-                            <h1>
-                                ${getIconSVG('check', 'w-8 h-8')}
-                                <span>WhatsApp Connected</span>
-                            </h1>
+                            <h1>✅ WhatsApp Connected</h1>
                             <div class="phone-display">+${connectedPhone}</div>
                         </div>
                         
                         <div class="content">
                             <div class="info-grid">
                                 <div class="info-card">
-                                    <div class="info-card-header">
-                                        ${getIconSVG('database', 'w-4 h-4')}
-                                        <span>Session Status</span>
-                                    </div>
-                                    <div class="info-card-value">${sessionStats.exists ? 'Saved' : 'Not Saved'}</div>
+                                    <div class="info-card-header">Session Status</div>
+                                    <div class="info-card-value">${sessionStats.exists ? '✓ Saved' : '⚠ Not Saved'}</div>
                                 </div>
                                 
                                 <div class="info-card">
-                                    <div class="info-card-header">
-                                        ${getIconSVG('shield', 'w-4 h-4')}
-                                        <span>Backup Status</span>
-                                    </div>
-                                    <div class="info-card-value">${sessionBackup ? 'Available' : 'Creating...'}</div>
+                                    <div class="info-card-header">Backup Status</div>
+                                    <div class="info-card-value">${sessionBackup ? '✓ Available' : '⚠ Creating'}</div>
                                 </div>
                                 
                                 ${sessionStats.file_count ? `
                                 <div class="info-card">
-                                    <div class="info-card-header">
-                                        ${getIconSVG('file', 'w-4 h-4')}
-                                        <span>Session Files</span>
-                                    </div>
+                                    <div class="info-card-header">Session Files</div>
                                     <div class="info-card-value">${sessionStats.file_count} files</div>
                                 </div>
                                 ` : ''}
                                 
                                 ${sessionStats.created_hours_ago ? `
                                 <div class="info-card">
-                                    <div class="info-card-header">
-                                        ${getIconSVG('clock', 'w-4 h-4')}
-                                        <span>Session Age</span>
-                                    </div>
+                                    <div class="info-card-header">Session Age</div>
                                     <div class="info-card-value">${Math.floor(sessionStats.created_hours_ago / 24)}d ${sessionStats.created_hours_ago % 24}h</div>
                                 </div>
                                 ` : ''}
                             </div>
                             
                             <div class="feature-box">
-                                <h3>
-                                    ${getIconSVG('info', 'w-5 h-5')}
-                                    <span>Session Persistence</span>
-                                </h3>
+                                <h3>🔒 Session Persistence Features</h3>
                                 <ul class="feature-list">
-                                    <li>
-                                        ${getIconSVG('check', 'w-5 h-5')}
-                                        <span>Saved to Railway /tmp storage</span>
-                                    </li>
-                                    <li>
-                                        ${getIconSVG('check', 'w-5 h-5')}
-                                        <span>Automatic backup created</span>
-                                    </li>
-                                    <li>
-                                        ${getIconSVG('check', 'w-5 h-5')}
-                                        <span>Auto-restores on restart</span>
-                                    </li>
-                                    <li>
-                                        ${getIconSVG('check', 'w-5 h-5')}
-                                        <span>Platform-independent deployment</span>
-                                    </li>
+                                    <li>Auto-saved to secure storage</li>
+                                    <li>Automatic backup system</li>
+                                    <li>Restores on service restart</li>
+                                    <li>Platform-independent</li>
                                 </ul>
                             </div>
                             
                             <div class="actions">
-                                <a href="/api/session-info" class="btn btn-primary">
-                                    ${getIconSVG('database', 'w-5 h-5')}
-                                    <span>View Details</span>
-                                </a>
-                                <a href="/" class="btn btn-secondary">
-                                    ${getIconSVG('home', 'w-5 h-5')}
-                                    <span>API Status</span>
-                                </a>
+                                <a href="/api/session-info" class="btn btn-primary">View Details</a>
+                                <a href="/" class="btn btn-secondary">API Status</a>
                             </div>
                         </div>
                     </div>
@@ -1076,14 +1041,14 @@ app.get('/qr', async (req, res) => {
                 <head>
                     <meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <meta http-equiv="refresh" content="2">
-                    <title>Initializing | Academic Manager</title>
+                    <meta http-equiv="refresh" content="3">
+                    <title>Initializing WhatsApp | Academic Manager</title>
                     <style>
                         * { margin: 0; padding: 0; box-sizing: border-box; }
                         
                         body {
-                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                            background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
                             min-height: 100vh;
                             display: flex;
                             align-items: center;
@@ -1093,19 +1058,19 @@ app.get('/qr', async (req, res) => {
                         
                         .loader-container {
                             background: white;
-                            padding: 60px;
-                            border-radius: 24px;
-                            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                            padding: 50px;
+                            border-radius: 16px;
+                            box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
                             text-align: center;
                             max-width: 400px;
                         }
                         
                         .spinner {
-                            width: 80px;
-                            height: 80px;
-                            margin: 0 auto 32px;
-                            border: 6px solid #e5e7eb;
-                            border-top-color: #667eea;
+                            width: 60px;
+                            height: 60px;
+                            margin: 0 auto 30px;
+                            border: 4px solid #DCF8C6;
+                            border-top-color: #25D366;
                             border-radius: 50%;
                             animation: spin 1s linear infinite;
                         }
@@ -1115,36 +1080,15 @@ app.get('/qr', async (req, res) => {
                         }
                         
                         h2 {
-                            font-size: 24px;
-                            color: #1e293b;
+                            font-size: 22px;
+                            color: #075E54;
                             margin-bottom: 12px;
                         }
                         
                         p {
-                            color: #64748b;
-                            font-size: 15px;
+                            color: #128C7E;
+                            font-size: 14px;
                             line-height: 1.6;
-                        }
-                        
-                        .dots {
-                            display: inline-flex;
-                            gap: 4px;
-                        }
-                        
-                        .dot {
-                            width: 8px;
-                            height: 8px;
-                            background: #667eea;
-                            border-radius: 50%;
-                            animation: bounce 1.4s infinite ease-in-out both;
-                        }
-                        
-                        .dot:nth-child(1) { animation-delay: -0.32s; }
-                        .dot:nth-child(2) { animation-delay: -0.16s; }
-                        
-                        @keyframes bounce {
-                            0%, 80%, 100% { transform: scale(0); }
-                            40% { transform: scale(1); }
                         }
                     </style>
                 </head>
@@ -1152,8 +1096,8 @@ app.get('/qr', async (req, res) => {
                     <div class="loader-container">
                         <div class="spinner"></div>
                         <h2>Initializing WhatsApp</h2>
-                        <p>Checking for saved session<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span></p>
-                        <p style="margin-top: 16px; font-size: 13px;">This page will auto-refresh</p>
+                        <p>Checking for saved session...</p>
+                        <p style="margin-top: 16px; font-size: 12px; opacity: 0.7;">This page will auto-refresh</p>
                     </div>
                 </body>
                 </html>
@@ -1167,13 +1111,13 @@ app.get('/qr', async (req, res) => {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Connect WhatsApp | Academic Manager</title>
+                <title>Scan QR Code | Academic Manager</title>
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     
                     body {
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
                         min-height: 100vh;
                         display: flex;
                         align-items: center;
@@ -1183,109 +1127,106 @@ app.get('/qr', async (req, res) => {
                     
                     .container {
                         background: white;
-                        border-radius: 24px;
-                        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                        border-radius: 16px;
+                        box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
                         max-width: 550px;
                         width: 100%;
                         overflow: hidden;
                     }
                     
                     .header {
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
                         color: white;
                         padding: 32px;
                         text-align: center;
                     }
                     
                     h1 {
-                        font-size: 28px;
-                        font-weight: 700;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        gap: 12px;
+                        font-size: 26px;
+                        font-weight: 600;
+                        margin-bottom: 8px;
+                    }
+                    
+                    .subtitle {
+                        font-size: 14px;
+                        opacity: 0.9;
                     }
                     
                     .content { padding: 32px; }
                     
                     .qr-wrapper {
-                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                        background: #DCF8C6;
                         padding: 24px;
-                        border-radius: 20px;
+                        border-radius: 12px;
                         text-align: center;
                         margin-bottom: 24px;
-                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
                     }
                     
                     .qr-wrapper img {
                         max-width: 100%;
                         height: auto;
-                        border-radius: 16px;
-                        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+                        border-radius: 8px;
+                        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
                     }
                     
                     .instructions {
-                        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-                        border-left: 4px solid #f59e0b;
-                        padding: 24px;
-                        border-radius: 12px;
+                        background: #FFFEF5;
+                        border-left: 4px solid #FFC107;
+                        padding: 20px;
+                        border-radius: 8px;
                         margin-bottom: 24px;
                     }
                     
                     .instructions h3 {
-                        display: flex;
-                        align-items: center;
-                        gap: 8px;
-                        font-size: 16px;
-                        color: #92400e;
-                        margin-bottom: 16px;
+                        font-size: 15px;
+                        color: #E65100;
+                        margin-bottom: 12px;
                     }
                     
                     .step-list {
                         list-style: none;
                         display: flex;
                         flex-direction: column;
-                        gap: 12px;
+                        gap: 10px;
                     }
                     
                     .step-list li {
                         display: flex;
                         align-items: start;
                         gap: 12px;
-                        color: #78350f;
+                        color: #5D4037;
                         font-size: 14px;
-                        line-height: 1.6;
+                        line-height: 1.5;
                     }
                     
                     .step-number {
-                        background: #fbbf24;
+                        background: #FFA000;
                         color: white;
-                        width: 24px;
-                        height: 24px;
+                        min-width: 22px;
+                        height: 22px;
                         border-radius: 50%;
                         display: flex;
                         align-items: center;
                         justify-content: center;
                         font-weight: 700;
-                        font-size: 12px;
+                        font-size: 11px;
                         flex-shrink: 0;
                     }
                     
                     .info-box {
-                        background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-                        border-left: 4px solid #3b82f6;
+                        background: #DCF8C6;
+                        border-left: 4px solid #25D366;
                         padding: 20px;
-                        border-radius: 12px;
+                        border-radius: 8px;
                         margin-bottom: 24px;
                     }
                     
                     .info-box h4 {
-                        display: flex;
-                        align-items: center;
-                        gap: 8px;
-                        color: #1e40af;
-                        font-size: 15px;
-                        margin-bottom: 12px;
+                        color: #075E54;
+                        font-size: 14px;
+                        margin-bottom: 10px;
+                        font-weight: 600;
                     }
                     
                     .info-box ul {
@@ -1296,46 +1237,53 @@ app.get('/qr', async (req, res) => {
                     }
                     
                     .info-box li {
+                        color: #128C7E;
+                        font-size: 13px;
+                        padding-left: 24px;
+                        position: relative;
+                    }
+                    
+                    .info-box li::before {
+                        content: '✓';
+                        position: absolute;
+                        left: 0;
+                        background: #25D366;
+                        color: white;
+                        width: 18px;
+                        height: 18px;
+                        border-radius: 50%;
                         display: flex;
                         align-items: center;
-                        gap: 8px;
-                        color: #1e3a8a;
-                        font-size: 13px;
+                        justify-content: center;
+                        font-size: 11px;
+                        font-weight: bold;
                     }
                     
                     .btn-refresh {
                         width: 100%;
-                        padding: 16px;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        padding: 14px;
+                        background: #25D366;
                         color: white;
                         border: none;
-                        border-radius: 12px;
-                        font-size: 16px;
+                        border-radius: 8px;
+                        font-size: 15px;
                         font-weight: 600;
                         cursor: pointer;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        gap: 8px;
                         transition: all 0.3s ease;
                     }
                     
                     .btn-refresh:hover {
+                        background: #128C7E;
                         transform: translateY(-2px);
-                        box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+                        box-shadow: 0 10px 20px rgba(37, 211, 102, 0.3);
                     }
                 </style>
             </head>
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>
-                            ${getIconSVG('qrcode', 'w-8 h-8')}
-                            <span>Scan QR Code</span>
-                        </h1>
-                        <p style="margin-top: 12px; font-size: 14px; opacity: 0.9;">
-                            Administrator Setup - One-Time Connection
-                        </p>
+                        <h1>📱 Scan QR Code</h1>
+                        <p class="subtitle">Administrator Setup - One-Time Connection</p>
                     </div>
                     
                     <div class="content">
@@ -1344,10 +1292,7 @@ app.get('/qr', async (req, res) => {
                         </div>
                         
                         <div class="instructions">
-                            <h3>
-                                ${getIconSVG('info', 'w-5 h-5')}
-                                <span>How to Connect</span>
-                            </h3>
+                            <h3>📋 How to Connect</h3>
                             <ul class="step-list">
                                 <li>
                                     <span class="step-number">1</span>
@@ -1373,38 +1318,23 @@ app.get('/qr', async (req, res) => {
                         </div>
                         
                         <div class="info-box">
-                            <h4>
-                                ${getIconSVG('shield', 'w-5 h-5')}
-                                <span>Platform-Independent Storage</span>
-                            </h4>
+                            <h4>🔒 Secure & Platform-Independent</h4>
                             <ul>
-                                <li>
-                                    ${getIconSVG('check', 'w-4 h-4')}
-                                    <span>Session auto-saved with backup system</span>
-                                </li>
-                                <li>
-                                    ${getIconSVG('check', 'w-4 h-4')}
-                                    <span>Works on Railway, AWS, DigitalOcean, etc.</span>
-                                </li>
-                                <li>
-                                    ${getIconSVG('check', 'w-4 h-4')}
-                                    <span>Auto-restores on service restart</span>
-                                </li>
-                                <li>
-                                    ${getIconSVG('check', 'w-4 h-4')}
-                                    <span>No cloud-specific dependencies</span>
-                                </li>
+                                <li>Session auto-saved with backup</li>
+                                <li>Works on any hosting platform</li>
+                                <li>Auto-restores on restart</li>
+                                <li>No cloud-specific dependencies</li>
                             </ul>
                         </div>
                         
                         <button onclick="location.reload()" class="btn-refresh">
-                            ${getIconSVG('refresh', 'w-5 h-5')}
-                            <span>Refresh QR Code</span>
+                            🔄 Refresh QR Code
                         </button>
                     </div>
                 </div>
                 
                 <script>
+                    // Check connection status every 3 seconds
                     setInterval(() => {
                         fetch('/api/status')
                             .then(r => r.json())
@@ -1426,7 +1356,7 @@ app.get('/qr', async (req, res) => {
 });
 
 // Standard API endpoints
-app.get('/api/status', authenticateAPIKey, (req, res) => {
+app.get('/api/status', (req, res) => {
     res.json({ 
         success: true, 
         status: connectionState, 
@@ -1578,15 +1508,15 @@ app.get('/health', (req, res) => {
         active_user_sessions: sessionTokens.size,
         uptime_seconds: Math.floor(process.uptime())
     });
-});
+    });
 
 // Load backup on startup
 loadBackupFromDisk();
 
 app.listen(PORT, () => {
     logger.info('='.repeat(70));
-    logger.info('🚀 WhatsApp Academic Manager API v2.3.0');
-    logger.info('   Platform-Independent + Phone Authentication');
+    logger.info('🚀 WhatsApp Academic Manager API v2.4.0');
+    logger.info('   WhatsApp Themed + Complete Phone Authentication');
     logger.info('='.repeat(70));
     logger.info(`📡 Server running on port ${PORT}`);
     logger.info(`🌐 Health check: http://localhost:${PORT}/`);

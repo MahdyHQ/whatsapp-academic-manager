@@ -1,3 +1,8 @@
+from dotenv import load_dotenv
+
+# Load .env file FIRST
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -31,6 +36,13 @@ headers = {
 }
 if WHATSAPP_API_KEY:
     headers["x-api-key"] = WHATSAPP_API_KEY
+
+# Debug output
+print("="*50)
+print("🔐 WhatsApp Service Configuration:")
+print(f"   URL: {WHATSAPP_SERVICE_URL}")
+print(f"   API Key: {'✅ Loaded (' + WHATSAPP_API_KEY[:10] + '...)' if WHATSAPP_API_KEY else '❌ NOT FOUND'}")
+print("="*50)
 
 class WhatsAppStatus(BaseModel):
     success: bool
@@ -69,7 +81,8 @@ async def root():
         "version": "1.0.0",
         "whatsapp": {
             "connected": True,
-            "phone": "+201155547529"
+            "phone": "+201155547529",
+            "api_key_configured": bool(WHATSAPP_API_KEY)
         },
         "endpoints": {
             "status": "/api/whatsapp/status",
@@ -85,6 +98,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "Academic Manager API",
+        "api_key_present": bool(WHATSAPP_API_KEY),
         "timestamp": datetime.utcnow().isoformat()
     }
 

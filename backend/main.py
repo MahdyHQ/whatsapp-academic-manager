@@ -19,7 +19,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+     allow_origins=[
+        "http://localhost:3000",
+        "https://urban-rotary-phone-69wxvpwgr6wg24v7r-3000.app.github.dev",
+        "https://*.app.github.dev",  # Allow all GitHub Codespaces URLs
+        "*"  # Allow all origins (for development)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

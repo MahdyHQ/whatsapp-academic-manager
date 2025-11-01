@@ -1,2 +1,63 @@
  Two secret keys (generated with Python) >> 9g6eFXWXE0sybufsQFPl9TEAmQKiQXKjcRrk7JrKJww
  Two secret keys (generated with Python) >> KjpdBVgADru6R9VmL1zPVwyckYXlebLbucAZrHm3DkE
+# Check status
+git status
+
+# Check current branch
+git branch
+
+# Pull latest changes
+git pull origin main
+
+# Add all changes
+git add .
+
+# Add specific file
+git add path/to/file
+
+# Commit with message
+git commit -m "feat: Add phone authentication system"
+
+# Push to GitHub
+git push origin main
+
+# Push to specific branch
+git push origin branch-name
+# View commit history
+git log --oneline -10
+git log --graph --oneline --all
+
+# Check remote URL
+git remote -v
+
+# Undo last commit (keep changes)
+git reset --soft HEAD~1
+
+# Discard all local changes (CAREFUL!)
+git reset --hard HEAD
+
+# Create new branch
+git checkout -b feature/new-feature
+
+# Switch branch
+git checkout main
+
+# Merge branch
+git merge feature/new-feature
+
+# View file changes
+git diff
+git diff path/to/file
+
+# Stash changes
+git stash
+git stash pop
+git stash list
+cd /workspaces/whatsapp-academic-manager/backend
+source ../.venv/bin/activate
+python main.py
+cd /workspaces/whatsapp-academic-manager/backend
+source ../.venv/bin/activate
+python main.py
+cd /workspaces/whatsapp-academic-manager/whatsapp-service/frontend
+npm run dev

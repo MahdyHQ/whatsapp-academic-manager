@@ -2,7 +2,7 @@
  Two secret keys (generated with Python) >> KjpdBVgADru6R9VmL1zPVwyckYXlebLbucAZrHm3DkE
 # Check status
 git status
-
+git pull origin main --no-rebase && git push origin main
 # Check current branch
 git branch
 
@@ -61,3 +61,14 @@ source ../.venv/bin/activate
 python main.py
 cd /workspaces/whatsapp-academic-manager/whatsapp-service/frontend
 npm run dev
+
+
+
+# Kill the process first
+pkill -f "python main.py"
+
+# Wait a moment
+sleep 2
+
+# Start again
+cd /workspaces/whatsapp-academic-manager/backend && source ../.venv/bin/activate && python main.py

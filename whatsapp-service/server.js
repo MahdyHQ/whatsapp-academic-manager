@@ -1602,6 +1602,44 @@ app.get('/api/messages/:groupId', requireAuthOrAPIKey, async (req, res) => {
     }
 });
 
+// Backwards-compatible alias for frontend routes that use /api/whatsapp/messages/:groupId
+app.get('/api/whatsapp/messages/:groupId', requireAuthOrAPIKey, async (req, res) => {
+    try {
+        if (!sock || connectionState !== 'connected') {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'WhatsApp not connected',
+                status: connectionState
+            });
+        }
+        const { groupId } = req.params;
+        const limit = parseInt(req.query.limit) || 50;
+
+        const msgs = await sock.fetchMessagesFromWA(groupId, limit);
+        const formatted = msgs.map(m => ({
+            id: m.key.id,
+            from_user: m.key.participant || m.key.remoteJid,
+            content: m.message?.conversation || m.message?.extendedTextMessage?.text || '',
+            timestamp: m.messageTimestamp,
+            date: new Date(m.messageTimestamp * 1000).toLocaleString()
+        })).filter(m => m.content);
+
+        const groupInfo = await sock.groupMetadata(groupId);
+
+        logger.info(`📱 ${req.user.phone} fetched ${formatted.length} messages from ${groupInfo.subject}`);
+
+        res.json({ 
+            success: true, 
+            count: formatted.length, 
+            group_name: groupInfo.subject,
+            messages: formatted 
+        });
+    } catch (error) {
+        logger.error('Messages alias endpoint error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post('/api/send', requireAuth, async (req, res) => {
     try {
         if (!sock || connectionState !== 'connected') {

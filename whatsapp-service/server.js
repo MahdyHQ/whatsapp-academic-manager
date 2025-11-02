@@ -48,6 +48,9 @@ app.use(cors({
 
 app.use(bodyParser.json());
 
+// Serve static assets from /public
+app.use(express.static(path.join(__dirname, 'public')));
+
 const logger = pino({ level: 'info' });
 
 // WhatsApp connection state
@@ -89,6 +92,12 @@ function getIconSVG(iconName, className = 'w-6 h-6') {
         clock: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
         info: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`,
         home: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`,
+        
+    // Additional icons
+    trash: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>`,
+    bell: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>`,
+    user: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M20 21v-2a4 4 0 0 0-3-3.87"></path><path d="M4 21v-2a4 4 0 0 1 3-3.87"></path><circle cx="12" cy="7" r="4"></circle></svg>`,
+    warning: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
     };
     return icons[iconName] || '';
 }
@@ -861,23 +870,46 @@ app.get('/qr', async (req, res) => {
             
             return res.send(`
                 <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>WhatsApp Connected | Academic Manager</title>
-                    <style>
-                        * { margin: 0; padding: 0; box-sizing: border-box; }
+                        <html lang="en">
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+                            <title>WhatsApp Connected | Academic Manager</title>
+                                <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+                                <link rel="shortcut icon" href="/favicon.ico">
+                            <style>
+                                :root{
+                                    --wa-primary: ${whatsappColors.primary};
+                                    --wa-secondary: ${whatsappColors.secondary};
+                                    --wa-bg: ${whatsappColors.background};
+                                    --wa-dark: ${whatsappColors.dark};
+                                    --wa-light: ${whatsappColors.light};
+                                    --icon-size: 20px;
+                                    --radius-lg: 16px;
+                                    --shadow-strong: 0 20px 60px rgba(7, 94, 84, 0.3);
+                                }
+
+                                * { margin: 0; padding: 0; box-sizing: border-box; }
                         
-                        body {
-                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-                            background: linear-gradient(135deg, ${whatsappColors.primary} 0%, ${whatsappColors.secondary} 100%);
-                            min-height: 100vh;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            padding: 20px;
-                        }
+                                body {
+                                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                                    background: linear-gradient(135deg, var(--wa-primary) 0%, var(--wa-secondary) 100%);
+                                    min-height: 100vh;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    padding: 20px;
+                                }
+
+                                /* Icon utility */
+                                .icon {
+                                    width: var(--icon-size);
+                                    height: var(--icon-size);
+                                    display: inline-block;
+                                    vertical-align: -3px;
+                                    margin-right: 8px;
+                                }
                         
                         .container {
                             background: white;
@@ -1059,9 +1091,10 @@ app.get('/qr', async (req, res) => {
                         <div class="header">
                             <div class="status-badge">
                                 <span class="pulse"></span>
+                                <span aria-hidden="true">${getIconSVG('check','icon')}</span>
                                 <span>Connected & Active</span>
                             </div>
-                            <h1>✅ WhatsApp Connected</h1>
+                            <h1><span aria-hidden="true">${getIconSVG('check','icon')}</span>WhatsApp Connected</h1>
                             <div class="phone-display">+${connectedPhone}</div>
                         </div>
                         
@@ -1069,12 +1102,12 @@ app.get('/qr', async (req, res) => {
                             <div class="info-grid">
                                 <div class="info-card">
                                     <div class="info-card-header">Session Status</div>
-                                    <div class="info-card-value">${sessionStats.exists ? '✓ Saved' : '⚠ Not Saved'}</div>
+                                    <div class="info-card-value">${sessionStats.exists ? getIconSVG('check','icon') + ' Saved' : 'Not Saved'}</div>
                                 </div>
                                 
                                 <div class="info-card">
                                     <div class="info-card-header">Backup Status</div>
-                                    <div class="info-card-value">${sessionBackup ? '✓ Available' : '⚠ Creating'}</div>
+                                    <div class="info-card-value">${sessionBackup ? getIconSVG('check','icon') + ' Available' : 'Creating'}</div>
                                 </div>
                                 
                                 ${sessionStats.file_count ? `
@@ -1093,7 +1126,7 @@ app.get('/qr', async (req, res) => {
                             </div>
                             
                             <div class="feature-box">
-                                <h3>🔒 Session Persistence Features</h3>
+                                <h3><span aria-hidden="true">${getIconSVG('shield','icon')}</span>Session Persistence Features</h3>
                                 <ul class="feature-list">
                                     <li>Auto-saved to secure storage</li>
                                     <li>Automatic backup system</li>
@@ -1116,33 +1149,39 @@ app.get('/qr', async (req, res) => {
         if (!qrCodeData) {
             return res.send(`
                 <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <meta http-equiv="refresh" content="3">
-                    <title>Initializing WhatsApp | Academic Manager</title>
-                    <style>
-                        * { margin: 0; padding: 0; box-sizing: border-box; }
+                        <html lang="en">
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <meta http-equiv="refresh" content="3">
+                            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+                            <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+                            <link rel="shortcut icon" href="/favicon.ico">
+                            <title>Initializing WhatsApp | Academic Manager</title>
+                            <style>
+                                :root{ --wa-primary: #25D366; --wa-secondary: #128C7E; --wa-bg: #DCF8C6; --wa-dark: #075E54; --wa-light: #ECE5DD; --icon-size:20px; }
+                                * { margin: 0; padding: 0; box-sizing: border-box; }
                         
-                        body {
-                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-                            background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
-                            min-height: 100vh;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            padding: 20px;
-                        }
-                        
-                        .loader-container {
-                            background: white;
-                            padding: 50px;
-                            border-radius: 16px;
-                            box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
-                            text-align: center;
-                            max-width: 400px;
-                        }
+                                body {
+                                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                                    background: linear-gradient(135deg, var(--wa-primary) 0%, var(--wa-secondary) 100%);
+                                    min-height: 100vh;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    padding: 20px;
+                                }
+
+                                .icon { width: var(--icon-size); height: var(--icon-size); display:inline-block; vertical-align: -3px; margin-right:8px; }
+
+                                .loader-container {
+                                    background: white;
+                                    padding: 50px;
+                                    border-radius: 16px;
+                                    box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
+                                    text-align: center;
+                                    max-width: 400px;
+                                }
                         
                         .spinner {
                             width: 60px;
@@ -1186,23 +1225,29 @@ app.get('/qr', async (req, res) => {
         const qrImage = await QRCode.toDataURL(qrCodeData);
         res.send(`
             <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Scan QR Code | Academic Manager</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+                    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+                    <link rel="shortcut icon" href="/favicon.ico">
+                    <title>Scan QR Code | Academic Manager</title>
+                    <style>
+                        :root{ --wa-primary:#25D366; --wa-secondary:#128C7E; --wa-bg:#DCF8C6; --wa-dark:#075E54; --wa-light:#ECE5DD; --icon-size:20px }
+                        * { margin: 0; padding: 0; box-sizing: border-box; }
                     
-                    body {
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-                        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
-                        min-height: 100vh;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        padding: 20px;
-                    }
+                        body {
+                            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                            background: linear-gradient(135deg, var(--wa-primary) 0%, var(--wa-secondary) 100%);
+                            min-height: 100vh;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            padding: 20px;
+                        }
+
+                        .icon { width: var(--icon-size); height: var(--icon-size); display:inline-block; vertical-align:-3px; margin-right:8px }
                     
                     .container {
                         background: white;
@@ -1361,7 +1406,7 @@ app.get('/qr', async (req, res) => {
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>📱 Scan QR Code</h1>
+                        <h1><span aria-hidden="true">${getIconSVG('qrcode','icon')}</span>Scan QR Code</h1>
                         <p class="subtitle">Administrator Setup - One-Time Connection</p>
                     </div>
                     
@@ -1371,7 +1416,7 @@ app.get('/qr', async (req, res) => {
                         </div>
                         
                         <div class="instructions">
-                            <h3>📋 How to Connect</h3>
+                            <h3><span aria-hidden="true">${getIconSVG('file','icon')}</span>How to Connect</h3>
                             <ul class="step-list">
                                 <li>
                                     <span class="step-number">1</span>
@@ -1397,7 +1442,7 @@ app.get('/qr', async (req, res) => {
                         </div>
                         
                         <div class="info-box">
-                            <h4>🔒 Secure & Platform-Independent</h4>
+                            <h4><span aria-hidden="true">${getIconSVG('shield','icon')}</span>Secure & Platform-Independent</h4>
                             <ul>
                                 <li>Session auto-saved with backup</li>
                                 <li>Works on any hosting platform</li>
@@ -1407,7 +1452,7 @@ app.get('/qr', async (req, res) => {
                         </div>
                         
                         <button onclick="location.reload()" class="btn-refresh">
-                            🔄 Refresh QR Code
+                            <span aria-hidden="true">${getIconSVG('refresh','icon')}</span>Refresh QR Code
                         </button>
                     </div>
                 </div>
@@ -1591,6 +1636,38 @@ app.get('/health', (req, res) => {
 
 // Load backup on startup
 loadBackupFromDisk();
+
+// Ensure public favicon exists (write a small binary favicon.ico from base64 and an SVG fallback)
+function ensurePublicFavicon() {
+    try {
+        const publicDir = path.join(__dirname, 'public');
+        if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+
+        const icoPath = path.join(publicDir, 'favicon.ico');
+        const svgPath = path.join(publicDir, 'favicon.svg');
+
+        // A very small PNG (1x1 transparent) base64 - we'll write it as favicon.ico for broad support.
+        // Modern browsers accept PNG data for favicons; this guarantees a binary file is present.
+        const faviconBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=';
+
+        if (!fs.existsSync(icoPath)) {
+            fs.writeFileSync(icoPath, Buffer.from(faviconBase64, 'base64'));
+            logger.info(`💠 Wrote favicon binary to ${icoPath}`);
+        }
+
+        // Also write an SVG favicon (nicely themed) as a fallback/display for browsers that support SVG favicons.
+        const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\n  <circle cx="12" cy="12" r="12" fill="#25D366"/>\n  <path d=\"M7 12l3 3 8-8\" stroke=\"#fff\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n</svg>`;
+
+        if (!fs.existsSync(svgPath)) {
+            fs.writeFileSync(svgPath, svgContent, 'utf8');
+            logger.info(`💠 Wrote SVG favicon to ${svgPath}`);
+        }
+    } catch (err) {
+        logger.warn('Could not create public favicon files:', err.message);
+    }
+}
+
+ensurePublicFavicon();
 
 app.listen(PORT, () => {
     logger.info('='.repeat(70));

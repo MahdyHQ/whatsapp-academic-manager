@@ -345,9 +345,17 @@ async def get_group_messages(
             detail=f"WhatsApp service unavailable: {str(e)}"
         )
 
+# ==================== PRODUCTION READY ====================
+# For Render/Railway/Cloud deployment
+# ==================== PRODUCTION READY ====================
+import os
+
+# Get port from environment (Railway uses $PORT)
+PORT = int(os.getenv("PORT", 8000))
+
 if __name__ == "__main__":
     import uvicorn
     print("\n" + "="*70)
     print("🚀 Starting Academic Manager API")
     print("="*70 + "\n")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

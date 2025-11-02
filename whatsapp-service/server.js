@@ -107,21 +107,49 @@ function isValidPhoneNumber(phone) {
 }
 
 // ==================== AUTH MIDDLEWARE ====================
+/**
+ * Middleware to authenticate requests using API Key
+ * Checks x-api-key header or Authorization header
+ */
 const authenticateAPIKey = (req, res, next) => {
-    if (!process.env.API_KEY) return next();
+    // If no API_KEY is configured, skip authentication
+    if (!process.env.API_KEY) {
+        logger.warn('⚠️  No API_KEY configured - skipping authentication');
+        return next();
+    }
+    
+    // Get API key from headers
     const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+    
+    // Debug logging
+    logger.info('🔑 API Key Authentication:');
+    logger.info(`   Received: ${apiKey ? apiKey.substring(0, 15) + '...' : 'None'}`);
+    logger.info(`   Expected: ${process.env.API_KEY ? process.env.API_KEY.substring(0, 15) + '...' : 'None'}`);
+    logger.info(`   Match: ${apiKey === process.env.API_KEY}`);
+    
+    // Validate API key
     if (!apiKey || apiKey !== process.env.API_KEY) {
+        logger.warn('❌ API key validation failed');
         return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
+    
+    logger.info('✅ API key validated');
     next();
 };
 
-// Auth middleware for user sessions
+/**
+ * Middleware to authenticate requests using user session tokens
+ * Checks Bearer token in Authorization header
+ */
 function requireAuth(req, res, next) {
     try {
         const token = req.headers['authorization']?.replace('Bearer ', '');
         
+        logger.info('🔐 User Token Authentication:');
+        logger.info(`   Token: ${token ? token.substring(0, 20) + '...' : 'None'}`);
+        
         if (!token) {
+            logger.warn('❌ No token provided');
             return res.status(401).json({ 
                 success: false, 
                 error: 'Authentication required' 
@@ -130,11 +158,20 @@ function requireAuth(req, res, next) {
         
         const session = sessionTokens.get(token);
         
-        if (!session || Date.now() > session.expiresAt) {
-            if (session) sessionTokens.delete(token);
+        if (!session) {
+            logger.warn('❌ Token not found in sessions');
             return res.status(401).json({ 
                 success: false, 
-                error: 'Invalid or expired session' 
+                error: 'Invalid session token' 
+            });
+        }
+        
+        if (Date.now() > session.expiresAt) {
+            logger.warn('❌ Token expired');
+            sessionTokens.delete(token);
+            return res.status(401).json({ 
+                success: false, 
+                error: 'Session expired. Please login again.' 
             });
         }
         
@@ -147,14 +184,56 @@ function requireAuth(req, res, next) {
             role: 'admin'
         };
         
+        logger.info(`✅ User authenticated: ${req.user.phone}`);
         next();
     } catch (error) {
-        logger.error('Auth middleware error:', error);
+        logger.error('❌ Auth middleware error:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Authentication failed' 
         });
     }
+}
+
+/**
+ * Flexible middleware that accepts EITHER API key OR user token
+ * Use this for endpoints that can be accessed by both admin (API key) and users (token)
+ */
+function requireAuthOrAPIKey(req, res, next) {
+    // Try API key first
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey && process.env.API_KEY && apiKey === process.env.API_KEY) {
+        logger.info('✅ Authenticated via API key');
+        req.user = {
+            phone: 'API_KEY_ADMIN',
+            role: 'admin',
+            authMethod: 'api_key'
+        };
+        return next();
+    }
+    
+    // Try Bearer token
+    const token = req.headers['authorization']?.replace('Bearer ', '');
+    if (token) {
+        const session = sessionTokens.get(token);
+        if (session && Date.now() <= session.expiresAt) {
+            session.lastActivity = Date.now();
+            req.user = {
+                phone: session.phone,
+                role: 'admin',
+                authMethod: 'bearer_token'
+            };
+            logger.info(`✅ Authenticated via token: ${req.user.phone}`);
+            return next();
+        }
+    }
+    
+    // No valid authentication found
+    logger.warn('❌ No valid authentication provided');
+    return res.status(401).json({ 
+        success: false, 
+        error: 'Authentication required. Provide either x-api-key or Bearer token.' 
+    });
 }
 
 // ==================== SESSION MANAGEMENT ====================
@@ -639,7 +718,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // GET /api/auth/me - Get current user info
-app.get('/api/auth/me', requireAuth, (req, res) => {
+app.get('/api/auth/me', requireAuthOrAPIKey, (req, res) => {
     try {
         res.json({ 
             success: true, 
@@ -1413,7 +1492,7 @@ app.get('/api/session-info', (req, res) => {
 });
 
 // Protected WhatsApp API endpoints (require user auth)
-app.get('/api/groups', requireAuth, async (req, res) => {
+app.get('/api/groups',  requireAuthOrAPIKey, async (req, res) => {
     try {
         if (!sock || connectionState !== 'connected') {
             return res.status(503).json({ 
@@ -1440,7 +1519,7 @@ app.get('/api/groups', requireAuth, async (req, res) => {
     }
 });
 
-app.get('/api/messages/:groupId', requireAuth, async (req, res) => {
+app.get('/api/messages/:groupId', requireAuthOrAPIKey, async (req, res) => {
     try {
         if (!sock || connectionState !== 'connected') {
             return res.status(503).json({ 

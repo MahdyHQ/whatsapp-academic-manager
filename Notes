@@ -72,3 +72,5 @@ sleep 2
 
 # Start again
 cd /workspaces/whatsapp-academic-manager/backend && source ../.venv/bin/activate && python main.py
+
+i now want to run main.py backend server at the best free online service instead of github codespaces

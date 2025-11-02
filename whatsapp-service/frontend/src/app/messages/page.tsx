@@ -112,7 +112,7 @@ export default function MessagesPage() {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                    {groups.slice(0, 20).map((group) => (
+                    {groups.slice(0, 20).map((group : any) => (
                       <button
                         key={group.id}
                         onClick={() => fetchMessages(group.id)}

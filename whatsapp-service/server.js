@@ -420,6 +420,50 @@ async function connectWhatsApp() {
             }
         });
 
+        // -------------------------
+        // Backwards-compatible helper
+        // Ensure `sock.fetchMessagesFromWA` exists. Some Baileys versions or custom
+        // wrappers may not provide this helper; create a safe shim that attempts
+        // multiple strategies to load messages and falls back to an empty array
+        // while logging diagnostics instead of causing a crash.
+        // -------------------------
+        if (typeof sock.fetchMessagesFromWA !== 'function') {
+            sock.fetchMessagesFromWA = async (groupId, limit = 50) => {
+                try {
+                    // Preferred: if a helper exists (e.g., sock.loadMessages or sock.fetchMessages)
+                    if (typeof sock.loadMessages === 'function') {
+                        // Some wrappers expose loadMessages(chatId, count)
+                        logger.info('Using sock.loadMessages to fetch messages');
+                        return await sock.loadMessages(groupId, limit);
+                    }
+
+                    if (typeof sock.fetchMessages === 'function') {
+                        logger.info('Using sock.fetchMessages to fetch messages');
+                        return await sock.fetchMessages(groupId, limit);
+                    }
+
+                    // If an internal store is available, try to read from it
+                    if (sock.store && sock.store.messages) {
+                        try {
+                            logger.info('Attempting to read messages from sock.store');
+                            const chatMsgs = sock.store.messages[groupId] || {};
+                            const items = Object.values(chatMsgs).sort((a, b) => (b.messageTimestamp || 0) - (a.messageTimestamp || 0));
+                            return items.slice(0, limit);
+                        } catch (e) {
+                            logger.warn('Reading from sock.store failed:', e.message);
+                        }
+                    }
+
+                    // As a last resort return an empty array but don't throw — caller will handle
+                    logger.warn('sock.fetchMessagesFromWA: no native fetch method found, returning empty array');
+                    return [];
+                } catch (err) {
+                    logger.error('sock.fetchMessagesFromWA error:', err);
+                    throw err;
+                }
+            };
+        }
+
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
@@ -516,6 +560,41 @@ async function connectWhatsApp() {
             logger.error('❌ Max reconnection attempts reached');
         }
     }
+}
+
+// Centralized helper to fetch messages for a group in a safe way.
+// Tries known socket methods and fallbacks. Returns an array of message objects.
+async function fetchMessagesFromWAWrapper(groupId, limit = 50) {
+    if (!sock) throw new Error('WhatsApp socket not initialized');
+
+    // If the socket exposes a direct helper, use it
+    if (typeof sock.fetchMessagesFromWA === 'function') {
+        return await sock.fetchMessagesFromWA(groupId, limit);
+    }
+
+    // Try other common helpers
+    if (typeof sock.loadMessages === 'function') {
+        return await sock.loadMessages(groupId, limit);
+    }
+
+    if (typeof sock.fetchMessages === 'function') {
+        return await sock.fetchMessages(groupId, limit);
+    }
+
+    // Try reading from an in-memory store if present
+    if (sock.store && sock.store.messages) {
+        try {
+            const chatMsgs = sock.store.messages[groupId] || {};
+            const items = Object.values(chatMsgs).sort((a, b) => (b.messageTimestamp || 0) - (a.messageTimestamp || 0));
+            return items.slice(0, limit);
+        } catch (e) {
+            logger.warn('fetchMessagesFromWAWrapper: reading from sock.store failed', e.message);
+        }
+    }
+
+    // No method available — return empty array but include diagnostic info
+    logger.error('fetchMessagesFromWAWrapper: no method available to fetch messages from WhatsApp socket');
+    return [];
 }
 
 // ==================== PHONE AUTH ENDPOINTS ====================
@@ -1577,7 +1656,13 @@ app.get('/api/messages/:groupId', requireAuthOrAPIKey, async (req, res) => {
         const { groupId } = req.params;
         const limit = parseInt(req.query.limit) || 50;
         
-        const msgs = await sock.fetchMessagesFromWA(groupId, limit);
+        let msgs;
+        try {
+            msgs = await fetchMessagesFromWAWrapper(groupId, limit);
+        } catch (e) {
+            logger.error('WhatsApp service error:', e.message);
+            return res.status(500).json({ success: false, error: `WhatsApp service error: ${JSON.stringify({ success: false, error: e.message })}` });
+        }
         const formatted = msgs.map(m => ({
             id: m.key.id,
             from_user: m.key.participant || m.key.remoteJid,
@@ -1615,7 +1700,13 @@ app.get('/api/whatsapp/messages/:groupId', requireAuthOrAPIKey, async (req, res)
         const { groupId } = req.params;
         const limit = parseInt(req.query.limit) || 50;
 
-        const msgs = await sock.fetchMessagesFromWA(groupId, limit);
+        let msgs;
+        try {
+            msgs = await fetchMessagesFromWAWrapper(groupId, limit);
+        } catch (e) {
+            logger.error('WhatsApp service error (alias):', e.message);
+            return res.status(500).json({ success: false, error: `WhatsApp service error: ${JSON.stringify({ success: false, error: e.message })}` });
+        }
         const formatted = msgs.map(m => ({
             id: m.key.id,
             from_user: m.key.participant || m.key.remoteJid,

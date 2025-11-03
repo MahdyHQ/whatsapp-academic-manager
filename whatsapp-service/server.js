@@ -1798,6 +1798,101 @@ function ensurePublicFavicon() {
 
 ensurePublicFavicon();
 
+// Convenience login page (QR or Phone OTP) for administrators
+app.get('/login', (req, res) => {
+        try {
+                res.send(`
+                        <!doctype html>
+                        <html>
+                        <head>
+                            <meta charset="utf-8" />
+                            <meta name="viewport" content="width=device-width,initial-scale=1" />
+                            <title>Login - WhatsApp Academic Manager</title>
+                            <style>body{font-family:sans-serif;background:#f7f7f8;padding:24px} .card{max-width:720px;margin:24px auto;background:#fff;padding:24px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.06)} h1{margin-bottom:12px} .row{display:flex;gap:12px;align-items:center} input[type=text]{flex:1;padding:10px;border:1px solid #ddd;border-radius:6px} button{padding:10px 14px;border-radius:6px;border:none;background:#25D366;color:#fff;font-weight:600;cursor:pointer} .muted{color:#666;font-size:13px;margin-top:8px}</style>
+                        </head>
+                        <body>
+                            <div class="card">
+                                <h1>Link WhatsApp Account</h1>
+                                <p class="muted">Two options to link your WhatsApp account: scan QR code or login by phone (OTP).</p>
+
+                                <h3>Option A — QR Code</h3>
+                                <p class="muted">Open this page on your admin device and click the button to open the QR UI.</p>
+                                <div style="margin-bottom:18px"><a href="/qr"><button>Open QR Page</button></a></div>
+
+                                <h3>Option B — Login by Phone (OTP)</h3>
+                                <p class="muted">Enter an authorized phone (international format) to receive an OTP via WhatsApp.</p>
+                                <div class="row" style="margin-top:8px">
+                                    <input id="phone" type="text" placeholder="+201155547529" />
+                                    <button id="send">Request OTP</button>
+                                </div>
+                                <div class="muted" id="status"></div>
+
+                                <script>
+                                    document.getElementById('send').addEventListener('click', async () => {
+                                        const phone = document.getElementById('phone').value.trim();
+                                        const status = document.getElementById('status');
+                                        status.textContent = '';
+                                        if (!phone) { status.textContent = 'Please enter a phone number.'; return; }
+                                        try {
+                                            const resp = await fetch('/api/auth/request-otp', {
+                                                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone })
+                                            });
+                                            const data = await resp.json();
+                                            if (resp.ok) {
+                                                status.textContent = data.message || 'OTP sent. Check WhatsApp.';
+                                                if (data.dev_otp) status.textContent += ' (dev OTP: ' + data.dev_otp + ')';
+                                            } else {
+                                                status.textContent = data.error || 'Failed to request OTP';
+                                            }
+                                        } catch (err) {
+                                            status.textContent = 'Network error. See console.';
+                                            console.error(err);
+                                        }
+                                    });
+                                </script>
+                            </div>
+                        </body>
+                        </html>
+                `);
+        } catch (err) {
+                logger.error('Login page error:', err);
+                res.status(500).json({ success: false, error: 'Failed to render login page' });
+        }
+});
+
+// JSON QR endpoint useful for API consumers (returns data URL when available)
+app.get('/api/qr', async (req, res) => {
+        try {
+                const qr = qrCodeData ? await QRCode.toDataURL(qrCodeData) : null;
+                return res.json({
+                        success: true,
+                        connected: connectionState === 'connected',
+                        connectionState,
+                        phone: connectedPhone,
+                        qr: qr
+                });
+        } catch (err) {
+                logger.error('API QR error:', err);
+                return res.status(500).json({ success: false, error: 'Failed to generate QR' });
+        }
+});
+
+// 404 handler for unknown routes
+app.use((req, res, next) => {
+        res.status(404).json({ success: false, error: 'Endpoint not found' });
+});
+
+// Centralized error handler
+app.use((err, req, res, next) => {
+        try {
+                logger.error('Unhandled error:', err && (err.stack || err.message || err));
+        } catch (e) {
+                // ignore logging errors
+        }
+        const status = err && err.status ? err.status : 500;
+        res.status(status).json({ success: false, error: err && err.message ? err.message : 'Internal Server Error' });
+});
+
 app.listen(PORT, () => {
     logger.info('='.repeat(70));
     logger.info('🚀 WhatsApp Academic Manager API v2.4.0');

@@ -21,7 +21,8 @@ const getBaseURL = (): string => {
   if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
-  // Fallback to Railway deployment URL if not set
+  // Fallback to Railway deployment URL - this is the same URL used in login page
+  // and is safe to expose as it's a public-facing API endpoint
   return 'https://pleasant-eagerness-production-6be8.up.railway.app';
 };
 
@@ -62,7 +63,16 @@ async function apiFetch<T>(
     headers,
   });
 
-  const data = await response.json().catch(() => ({}));
+  let data;
+  try {
+    data = await response.json();
+  } catch (parseError) {
+    // Log parsing errors for debugging, but continue with empty object
+    if (!response.ok) {
+      console.error('Failed to parse error response:', parseError);
+    }
+    data = {};
+  }
 
   if (!response.ok) {
     throw new APIError(

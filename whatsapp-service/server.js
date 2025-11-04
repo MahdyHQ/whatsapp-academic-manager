@@ -156,6 +156,30 @@ function isValidPhoneNumber(phone) {
     return /^\+\d{10,15}$/.test(phone);
 }
 
+// -------------------------
+// Baileys v7+ migration helpers
+// -------------------------
+// Prefer LID-aware and alternate JID fields introduced in Baileys 6.8+/7.x
+function getPreferredIdFromKey(key) {
+    // message key may contain participantAlt / remoteJidAlt (alternate JIDs),
+    // or participant / remoteJid (legacy). Prefer the Alt fields when present.
+    if (!key) return null;
+    return key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || null;
+}
+
+function extractMessageContent(m) {
+    // Support several common message shapes. Prefer readable text fields.
+    if (!m || !m.message) return '';
+    const msg = m.message;
+    // conversation (simple text), extendedTextMessage, imageMessage caption, etc.
+    return msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || '';
+}
+
+function extractMessageTimestamp(m) {
+    // Defensive extraction of timestamp fields across Baileys versions
+    return m?.messageTimestamp || m?.message?.messageTimestamp || m?.messageTimestampSeconds || null;
+}
+
 // ==================== AUTH MIDDLEWARE ====================
 /**
  * Middleware to authenticate requests using API Key
@@ -449,17 +473,55 @@ async function connectWhatsApp() {
 
         logger.info(`📦 Using Baileys version: ${version.join('.')}`);
 
+        // Baileys socket configuration notes:
+        // - logger: pass a pino-compatible logger (we use pino)
+        // - auth: provide an auth state implementation (useMultiFileAuthState is convenient for dev)
+        // - getMessage: should load a stored message by key for decrypting/placeholder resends
+        // - syncFullHistory: when true, emulates a desktop client to retrieve full history
+        // - markOnlineOnConnect: set to false to avoid spamming mobile notifications
+
+        const BAILEYS_LOG_LEVEL = process.env.BAILEYS_LOG_LEVEL || 'info';
+        const BAILEYS_LOGGER = pino({ level: BAILEYS_LOG_LEVEL });
+        const SYNC_FULL_HISTORY = process.env.SYNC_FULL_HISTORY === 'true';
+        const MARK_ONLINE_ON_CONNECT = process.env.MARK_ONLINE_ON_CONNECT === 'true';
+
+        // Simple in-memory cachedGroupMetadata store (recommended to replace with a proper cache)
+        const groupCache = new Map();
+
+        // NOTE: useMultiFileAuthState is convenient but may be IO-heavy for prod. Consider a DB-backed auth state.
         sock = makeWASocket({
             version,
-            logger: pino({ level: 'silent' }),
+            logger: BAILEYS_LOGGER,
             printQRInTerminal: true,
             auth: state,
             browser: ['Academic Manager', 'Chrome', '1.0.0'],
+            // timeouts and keepalive
             connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 60000,
             keepAliveIntervalMs: 30000,
+            // If the library asks for a message (for decryption or polls), fetch it from any persisted store we have.
             getMessage: async (key) => {
-                return { conversation: 'Message not available' };
+                try {
+                    // Prefer an in-memory store bound to the socket if available
+                    if (sock?.store && sock.store.messages && key?.remoteJid) {
+                        const chat = sock.store.messages[key.remoteJid] || {};
+                        const list = Object.values(chat);
+                        const found = list.find(m => m && m.key && m.key.id === key.id);
+                        if (found && found.message) return found.message;
+                    }
+
+                    // Fallback: return a harmless stub so Baileys can continue
+                    return { conversation: 'Message not available' };
+                } catch (err) {
+                    BAILEYS_LOGGER.warn('getMessage fallback triggered', err && err.message ? err.message : err);
+                    return { conversation: 'Message not available' };
+                }
+            },
+            // Optional features recommended by the docs
+            syncFullHistory: SYNC_FULL_HISTORY,
+            markOnlineOnConnect: MARK_ONLINE_ON_CONNECT,
+            cachedGroupMetadata: async (jid) => {
+                return groupCache.get(jid) || null;
             }
         });
 
@@ -489,6 +551,19 @@ async function connectWhatsApp() {
                     if (sock.store && sock.store.messages) {
                         try {
                             logger.info('Attempting to read messages from sock.store');
+            // Migration check: ensure auth directory contains lid-mapping and device-index files
+            try {
+                const authFiles = fs.readdirSync(AUTH_DIR);
+                const hasLid = authFiles.some(f => /lid/i.test(f) || /lid-mapping/i.test(f));
+                const hasDeviceIndex = authFiles.some(f => /device-index/i.test(f) || /deviceindex/i.test(f));
+                if (!hasLid || !hasDeviceIndex) {
+                    logger.warn('⚠️  Auth directory appears missing LID/device-index files required by Baileys v7+');
+                    logger.warn('    See migration guide: https://whiskey.so/migrate-latest');
+                    logger.warn('    If you are upgrading from an older session, consider creating a new session via QR or follow the migration steps to add lid-mapping and device-index to your auth state.');
+                }
+            } catch (e) {
+                logger.warn('Could not inspect auth directory for LID/device-index files:', e.message);
+            }
                             const chatMsgs = sock.store.messages[groupId] || {};
                             const items = Object.values(chatMsgs).sort((a, b) => (b.messageTimestamp || 0) - (a.messageTimestamp || 0));
                             return items.slice(0, limit);
@@ -586,6 +661,47 @@ async function connectWhatsApp() {
             }, 1000);
         });
 
+        // Expose lid-mapping store helpers when available (Baileys v7+)
+        try {
+            const lidStore = sock.signalRepository?.lidMapping;
+            if (lidStore) {
+                logger.info('🔁 LID mapping store available on socket');
+                // Optional convenience wrappers
+                sock.getLIDForPN = async (pn) => {
+                    if (typeof lidStore.getLIDForPN === 'function') return lidStore.getLIDForPN(pn);
+                    return null;
+                };
+                sock.getPNForLID = async (lid) => {
+                    if (typeof lidStore.getPNForLID === 'function') return lidStore.getPNForLID(lid);
+                    return null;
+                };
+            } else {
+                logger.info('ℹ️  No lid-mapping store available on this socket');
+            }
+
+            // Listen for lid-mapping updates (Baileys v7+)
+            sock.ev.on('lid-mapping.update', (update) => {
+                try {
+                    logger.info('🔄 lid-mapping.update event received');
+                    logger.debug({ update });
+                    // If the socket exposes a store helper, attempt to persist mapping
+                    const store = sock.signalRepository?.lidMapping;
+                    if (store) {
+                        // update may be a single mapping or an array
+                        if (Array.isArray(update) && typeof store.storeLIDPNMappings === 'function') {
+                            store.storeLIDPNMappings(update);
+                        } else if (update && typeof store.storeLIDPNMapping === 'function') {
+                            store.storeLIDPNMapping(update);
+                        }
+                    }
+                } catch (err) {
+                    logger.warn('Failed handling lid-mapping.update:', err && err.message ? err.message : err);
+                }
+            });
+        } catch (err) {
+            logger.debug('Could not attach lid-mapping helpers:', err && err.message ? err.message : err);
+        }
+
     } catch (error) {
         logger.error('❌ Fatal Connection Error:');
         logger.error(`   Message: ${error.message}`);
@@ -610,33 +726,142 @@ async function connectWhatsApp() {
 async function fetchMessagesFromWAWrapper(groupId, limit = 50) {
     if (!sock) throw new Error('WhatsApp socket not initialized');
 
-    // If the socket exposes a direct helper, use it
-    if (typeof sock.fetchMessagesFromWA === 'function') {
-        return await sock.fetchMessagesFromWA(groupId, limit);
-    }
+    logger.info(`fetchMessagesFromWAWrapper: fetching messages for group=${groupId} limit=${limit}`);
 
-    // Try other common helpers
-    if (typeof sock.loadMessages === 'function') {
-        return await sock.loadMessages(groupId, limit);
-    }
-
-    if (typeof sock.fetchMessages === 'function') {
-        return await sock.fetchMessages(groupId, limit);
-    }
-
-    // Try reading from an in-memory store if present
-    if (sock.store && sock.store.messages) {
+    // Helper to safely attempt a call and log results/errors
+    async function tryCall(name, fn) {
+        logger.info(`fetchMessagesFromWAWrapper: attempting ${name}()`);
         try {
-            const chatMsgs = sock.store.messages[groupId] || {};
-            const items = Object.values(chatMsgs).sort((a, b) => (b.messageTimestamp || 0) - (a.messageTimestamp || 0));
-            return items.slice(0, limit);
-        } catch (e) {
-            logger.warn('fetchMessagesFromWAWrapper: reading from sock.store failed', e.message);
+            const res = await fn();
+            const len = Array.isArray(res) ? res.length : (res && typeof res === 'object' && 'messages' in res ? (Array.isArray(res.messages) ? res.messages.length : 'non-array') : 'non-array-or-undefined');
+            logger.info(`fetchMessagesFromWAWrapper: ${name}() succeeded — result length: ${len}`);
+            return res;
+        } catch (err) {
+            logger.error(`fetchMessagesFromWAWrapper: ${name}() threw: ${err && err.stack ? err.stack : err}`);
+            return null;
         }
     }
 
+    // Try known socket helpers in order of preference
+    if (typeof sock.fetchMessagesFromWA === 'function') {
+        const r = await tryCall('sock.fetchMessagesFromWA', () => sock.fetchMessagesFromWA(groupId, limit));
+        if (r) return Array.isArray(r) ? r : (r.messages || []);
+    } else {
+        logger.info('fetchMessagesFromWAWrapper: sock.fetchMessagesFromWA not available');
+    }
+
+    if (typeof sock.loadMessages === 'function') {
+        const r = await tryCall('sock.loadMessages', () => sock.loadMessages(groupId, limit));
+        if (r) return Array.isArray(r) ? r : (r.messages || []);
+    } else {
+        logger.info('fetchMessagesFromWAWrapper: sock.loadMessages not available');
+    }
+
+    if (typeof sock.fetchMessages === 'function') {
+        const r = await tryCall('sock.fetchMessages', () => sock.fetchMessages(groupId, limit));
+        if (r) return Array.isArray(r) ? r : (r.messages || []);
+    } else {
+        logger.info('fetchMessagesFromWAWrapper: sock.fetchMessages not available');
+    }
+
+    // Try reading from an in-memory store if present (many Baileys wrappers expose a `store`)
+    if (sock.store && sock.store.messages) {
+        logger.info('fetchMessagesFromWAWrapper: attempting in-memory store lookup');
+        try {
+            // Support multiple store shapes: Map-like, object-of-objects, etc.
+            // 1) Map-like (store.messages.get(chatId) -> Map of messages)
+            if (typeof sock.store.messages.get === 'function') {
+                const chatMap = sock.store.messages.get(groupId);
+                if (chatMap && (typeof chatMap.values === 'function')) {
+                    const msgs = Array.from(chatMap.values());
+                    logger.info(`fetchMessagesFromWAWrapper: store.get returned ${msgs.length} messages`);
+                    return msgs;
+                }
+            }
+
+            // 2) Plain object where sock.store.messages[chatId] is an object or map
+            if (sock.store.messages[groupId]) {
+                const raw = sock.store.messages[groupId];
+                const msgs = Array.isArray(raw) ? raw : Object.values(raw || {});
+                logger.info(`fetchMessagesFromWAWrapper: store[index] returned ${msgs.length} messages`);
+                return msgs;
+            }
+
+            // 3) Fallback: iterate all entries and collect messages belonging to groupId
+            const collected = [];
+            if (typeof Object.entries === 'function') {
+                for (const [chatId, container] of Object.entries(sock.store.messages)) {
+                    if (!chatId) continue;
+                    if (chatId === groupId || chatId.endsWith(groupId)) {
+                        const vals = Array.isArray(container) ? container : Object.values(container || {});
+                        for (const v of vals) collected.push(v);
+                    }
+                }
+            }
+            if (collected.length) {
+                logger.info(`fetchMessagesFromWAWrapper: collected ${collected.length} messages by scanning store entries`);
+                return collected;
+            }
+
+            logger.info('fetchMessagesFromWAWrapper: store present but no messages found for this group');
+        } catch (err) {
+            logger.error('fetchMessagesFromWAWrapper: error reading store:', err && err.stack ? err.stack : err);
+        }
+    } else {
+        logger.info('fetchMessagesFromWAWrapper: no sock.store.messages available');
+    }
+
+    // Additional active-fetch fallbacks: try to ask the socket to query history
+    // These are best-effort and may not be supported by all Baileys versions.
+    if (typeof sock.query === 'function') {
+        logger.info('fetchMessagesFromWAWrapper: attempting sock.query() as an active history fetch');
+        try {
+            // Try a generic JSON query payload — many Baileys wrappers accept a `query` helper.
+            const payload = { json: ['query', 'history', { jid: groupId, count: limit }] };
+            const result = await tryCall('sock.query(history)', () => sock.query(payload));
+            if (result) {
+                // normalize a few possible shapes
+                if (Array.isArray(result)) return result;
+                if (result.messages && Array.isArray(result.messages)) return result.messages;
+                if (result[2] && Array.isArray(result[2])) return result[2];
+            }
+        } catch (err) {
+            logger.error('fetchMessagesFromWAWrapper: sock.query fallback threw:', err && err.stack ? err.stack : err);
+        }
+    } else {
+        logger.info('fetchMessagesFromWAWrapper: sock.query not available');
+    }
+
+    if (typeof sock.sendNode === 'function') {
+        logger.info('fetchMessagesFromWAWrapper: attempting sock.sendNode() with IQ history request');
+        try {
+            const node = {
+                tag: 'iq',
+                attrs: { type: 'get', to: groupId },
+                content: [ { tag: 'history', attrs: { count: String(limit) } } ]
+            };
+            const r = await tryCall('sock.sendNode(iq history)', () => sock.sendNode(node));
+            if (r && r.content) {
+                // try to extract messages from response
+                const msgs = [];
+                try {
+                    for (const c of r.content) {
+                        if (c.tag && (c.tag === 'message' || c.tag === 'm')) {
+                            msgs.push(c);
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+                if (msgs.length) return msgs;
+            }
+        } catch (err) {
+            logger.error('fetchMessagesFromWAWrapper: sock.sendNode fallback threw:', err && err.stack ? err.stack : err);
+        }
+    } else {
+        logger.info('fetchMessagesFromWAWrapper: sock.sendNode not available');
+    }
+
     // No method available — return empty array but include diagnostic info
-    logger.error('fetchMessagesFromWAWrapper: no method available to fetch messages from WhatsApp socket');
+    logger.error('fetchMessagesFromWAWrapper: no method available to fetch messages from WhatsApp socket — returning empty array');
     return [];
 }
 
@@ -1781,17 +2006,21 @@ app.get('/api/messages/:groupId', requireAuthOrAPIKey, async (req, res) => {
             logger.error('WhatsApp service error:', e.message);
             return res.status(500).json({ success: false, error: `WhatsApp service error: ${JSON.stringify({ success: false, error: e.message })}` });
         }
-        const formatted = msgs.map(m => ({
-            id: m.key.id,
-            from_user: m.key.participant || m.key.remoteJid,
-            content: m.message?.conversation || m.message?.extendedTextMessage?.text || '',
-            timestamp: m.messageTimestamp,
-            date: new Date(m.messageTimestamp * 1000).toLocaleString()
-        })).filter(m => m.content);
+        const formatted = msgs.map(m => {
+            const ts = extractMessageTimestamp(m) || Math.floor(Date.now() / 1000);
+            const content = extractMessageContent(m);
+            return {
+                id: m.key?.id,
+                from_user: getPreferredIdFromKey(m.key),
+                content,
+                timestamp: ts,
+                date: ts ? new Date(ts * 1000).toLocaleString() : new Date().toLocaleString()
+            };
+        }).filter(m => m.content);
         
         const groupInfo = await sock.groupMetadata(groupId);
         
-        logger.info(`📱 ${req.user.phone} fetched ${formatted.length} messages from ${groupInfo.subject}`);
+    logger.info(`📱 ${req.user.phone} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`);
         
         res.json({ 
             success: true, 
@@ -1825,17 +2054,21 @@ app.get('/api/whatsapp/messages/:groupId', requireAuthOrAPIKey, async (req, res)
             logger.error('WhatsApp service error (alias):', e.message);
             return res.status(500).json({ success: false, error: `WhatsApp service error: ${JSON.stringify({ success: false, error: e.message })}` });
         }
-        const formatted = msgs.map(m => ({
-            id: m.key.id,
-            from_user: m.key.participant || m.key.remoteJid,
-            content: m.message?.conversation || m.message?.extendedTextMessage?.text || '',
-            timestamp: m.messageTimestamp,
-            date: new Date(m.messageTimestamp * 1000).toLocaleString()
-        })).filter(m => m.content);
+        const formatted = msgs.map(m => {
+            const ts = extractMessageTimestamp(m) || Math.floor(Date.now() / 1000);
+            const content = extractMessageContent(m);
+            return {
+                id: m.key?.id,
+                from_user: getPreferredIdFromKey(m.key),
+                content,
+                timestamp: ts,
+                date: ts ? new Date(ts * 1000).toLocaleString() : new Date().toLocaleString()
+            };
+        }).filter(m => m.content);
 
         const groupInfo = await sock.groupMetadata(groupId);
 
-        logger.info(`📱 ${req.user.phone} fetched ${formatted.length} messages from ${groupInfo.subject}`);
+    logger.info(`📱 ${req.user.phone} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`);
 
         res.json({ 
             success: true, 

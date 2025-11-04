@@ -1,0 +1,209 @@
+Project: WhatsApp Academic Manager
+Path: /workspaces/whatsapp-academic-manager
+Date: 2025-11-04
+
+PURPOSE
+- This file summarizes the project structure, key entry points, environment variable names discovered in the repository, and instructions for an AI or developer to work on the project and reproduce/debug the running services.
+- Sensitive values are REDACTED. If you want them included here (key=value), please reply with explicit confirmation and provide the values you want recorded. Do NOT paste secrets unless you are comfortable storing them in the repository.
+
+-------------------------
+1) High-level folders and important files
+-------------------------
+(Only the most relevant files are listed — there are more files in subfolders.)
+
+/ (repo root)
+- README.md
+- LICENSE
+- railway.toml
+- .env.example  (project-wide example environment variables)
+- Notes/
+
+/backend
+- main.py                --> FastAPI forwarding layer that calls the Whatsapp service
+- config.py
+- models/ (user models)
+- utils/database.py
+- requirements.txt
+
+/whatsapp-service
+- server.js              --> Main WhatsApp/Express service (Baileys integration, QR & OTP flows)
+- config.mjs             --> Centralized config + env validation for the whatsapp-service
+- package.json
+- .env.example
+- public/ (favicons, static assets)
+- frontend/ (Next.js app used for UI)
+  - package.json
+  - .env.local          --> frontend runtime public env (NEXT_PUBLIC_API_URL, etc.)
+  - README.md
+  - src/app/
+    - globals.css
+    - layout.tsx
+    - page.tsx
+    - groups/page.tsx
+    - login/page.tsx
+    - messages/page.tsx
+    - test-messages/page.tsx
+  - src/components/
+    - providers.tsx
+    - ui/
+      - avatar.tsx
+      - badge.tsx
+      - button.tsx
+      - card.tsx
+      - input.tsx
+      - select.tsx
+      - separator.tsx
+      - skeleton.tsx
+      - toast.tsx
+      - toaster.tsx
+  - src/contexts/
+    - auth-context.tsx
+  - src/hooks/
+    - use-toast.ts
+  - src/lib/
+    - utils.ts
+    - api/
+      - api.ts
+      - whatsapp.txt
+    - hooks/
+      - use-whatsapp.ts
+  - public/ (static assets used by the frontend)
+
+/.devcontainer
+- devcontainer.json
+
+Other notable files
+- whatsapp-service/frontend/.env.local  (NEXT_PUBLIC_API_URL set to production URL)
+
+-------------------------
+2) Main entry points & how to run locally (quick commands)
+-------------------------
+- Backend (Python / FastAPI):
+  cd backend
+  python -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt
+  uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+- WhatsApp service (Node.js / Express + Baileys):
+  cd whatsapp-service
+  npm install
+  # dev: nodemon server.js (if installed)
+  node server.js
+  # or use: npm start (if script is defined)
+
+- Frontend (Next.js):
+  cd whatsapp-service/frontend
+  npm install
+  npm run dev
+
+Notes:
+- The WhatsApp service uses Baileys and expects an auth directory (AUTH_DIR) where it stores session files.
+- The production endpoints used in this repo (from previous checks):
+  - Whatsapp service (production): https://whatsapp-academic-manager-production.up.railway.app/
+  - Backend forwarding: https://wam-api-production.up.railway.app/
+
+-------------------------
+3) Environment variables discovered (keys, source file / default / example)
+-------------------------
+- These names were found in code and .env.example files. Values are REDACTED unless explicitly safe/public (e.g., frontend NEXT_PUBLIC_API_URL).
+- If you want values filled in this file, provide them and confirm you accept storing them here.
+
+From `whatsapp-service/config.mjs` and `server.js`:
+- PORT                          (default: 3000)
+- AUTH_DIR                      (default: /tmp/auth_info)
+- API_KEY                       (admin API key used by server; required to protect admin endpoints) [REDACTED]
+- AUTHORIZED_PHONES             (comma-separated list, e.g. +201155547529)
+- OTP_PHONE_LIMIT               (default: OTP_PHONE_LIMIT or OTP_PHONE_LIMIT env override)
+- OTP_PHONE_WINDOW_MS           (default fallback value used in code)
+- OTP_IP_LIMIT                  (default fallback value used in code)
+- OTP_IP_WINDOW_MS              (default fallback value used in code)
+- MAX_RECONNECT_ATTEMPTS        (default: 10)
+- NODE_ENV                      (development/production)
+- NODE_OPTIONS                  (optional Node flags)
+
+From `backend/main.py` and backend/.api_url (forwarding layer):
+- WHATSAPP_SERVICE_URL          (default: https://whatsapp-academic-manager-production.up.railway.app)
+- WHATSAPP_API_KEY              (used by backend to call whatsapp-service as admin) [REDACTED]
+
+From repo root `.env.example` (project-wide examples — treat these as examples and possibly sensitive):
+- GEMINI_API_KEY                (example placeholder) [REDACTED]
+- OPENAI_API_KEY                [REDACTED]
+- ANTHROPIC_API_KEY             [REDACTED]
+- MISTRAL_API_KEY               [REDACTED]
+- DATABASE_URL                  (example connection string - REDACTED)
+- SECRET_KEY / JWT_SECRET_KEY   (REDACED)
+- JWT_ALGORITHM
+- JWT_EXPIRATION_HOURS
+- API_V2_PREFIX
+- BACKEND_PORT
+- BACKEND_HOST
+- FRONTEND_URL
+- SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM_EMAIL / SMTP_FROM_NAME  (email config — REDACTED)
+- WHATSAPP_SESSION_PATH
+- WHATSAPP_MAX_RETRIES
+- WHATSAPP_RETRY_DELAY
+- AI_DEFAULT_PROVIDER
+- LOG_LEVEL / LOG_FILE
+- DEBUG / ENVIRONMENT
+
+From `whatsapp-service/frontend/.env.local`:
+- NEXT_PUBLIC_API_URL = https://whatsapp-academic-manager-production.up.railway.app  (public frontend config)
+
+Files where environment variables are read or used:
+- /whatsapp-service/config.mjs
+- /whatsapp-service/server.js
+- /whatsapp-service/frontend/src/... (reads NEXT_PUBLIC_API_URL)
+- /backend/main.py
+- /.env.example (examples)
+
+-------------------------
+4) Recommended 'contract' for AI helpers working on this repo
+-------------------------
+- Inputs:
+  - Which service to work on (backend, whatsapp-service, or frontend)
+  - Optional: reproduction steps (which endpoint you called, exact request, API key or user token used)
+  - Optional: environment variables (if you want the AI to modify or test with live credentials, provide them explicitly and confirm storage)
+- Outputs:
+  - Concrete code changes (patches) with file paths
+  - Tests or manual steps to validate the change
+  - Short explanation of why change was made and how it fixes the issue
+
+Edge cases to consider when debugging message fetching:
+- Empty message arrays can come from: remote API responses that are empty, Baileys versions with changed helper names, or server-side store being empty (auth/session mismatch).
+- Rate limits / connection states: ensure socket `connectionState === 'connected'` before requesting history.
+- Auth differences: some endpoints accept x-api-key or Authorization: Bearer <token>.
+
+-------------------------
+5) Useful commands & where to look for logs
+-------------------------
+- See server logs for WhatsApp service (stdout) — platform-specific:
+  - Railway: project -> deployment -> logs
+  - Docker: docker logs <container>
+  - Local: terminal where `node server.js` is running
+
+- Tail backend logs locally:
+  cd backend
+  uvicorn main:app --reload --port 8000
+  # Web UI: http://localhost:8000/docs
+
+- Fetch groups/messages via backend forwarding (example):
+  curl -H "x-api-key: <WHATSAPP_API_KEY>" "https://wam-api-production.up.railway.app/api/whatsapp/groups"
+
+-------------------------
+6) Questions / what I need from you to complete the summary or to help further
+-------------------------
+1) Do you want me to include your actual secret values (API_KEY, WHATSAPP_API_KEY, DATABASE_URL, etc.) in this file? If yes, paste them here and explicitly confirm you accept storing them in the repository.
+2) Which environment (local / production) do you want the AI to target for debugging? (local dev, railway production, or a specific deploy)
+3) If you want me to push this file and/or commit it to git and optionally trigger a deploy, do you grant me permission to run git commands in this workspace? (I will not push to remote without explicit permission.)
+4) If you want logs for the production `whatsapp-service` instance, do you have access to Railway logs or another provider UI and can paste relevant log snippets, or should I try to fetch anything via the existing backend endpoints?
+
+-------------------------
+7) Next steps I can take (pick one):
+- A) Commit this `project_summary.txt` to the repo and push (I will ask for permission before pushing). I can also create a `.env.template` with variable names (values redacted) to help onboarding.
+- B) Add an optional script to `whatsapp-service` to dump effective environment (masking secrets) and a README section describing required envs and how to populate them.
+- C) Start instrumenting the WhatsApp service further (more logs) and run a local test (requires providing a session/auth or allowing the service to create one via QR scan).
+
+-------------------------
+End of summary
+-------------------------

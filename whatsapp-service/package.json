@@ -29,10 +29,10 @@
   "license": "MIT",
   "engines": {
     "node": ">=24.11.0",
-    "npm": ">=11.6.2"
+    "npm": ">=11.6.1"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.17.16",
+  "@whiskeysockets/baileys": "7.0.0-rc.6",
     "axios": "^1.13.1",
     "body-parser": "^2.2.0",
     "compression": "^1.8.1",

@@ -9,8 +9,17 @@ import crypto from 'crypto';
 import { Buffer } from 'buffer';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url'; // ESM __dirname support
+
+// Compute __filename/__dirname for ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Load centralized config values (fall back to ENV if needed)
-import { PORT as CFG_PORT, AUTH_DIR as CFG_AUTH_DIR, PHONE_WINDOW_MS, IP_WINDOW_MS, PHONE_LIMIT, IP_LIMIT, MAX_RECONNECT_ATTEMPTS as CFG_MAX_RECONNECT_ATTEMPTS, AUTHORIZED_PHONES as CFG_AUTHORIZED_PHONES, validateEnv } from './config';
+// In ESM, import local files with extension. The ts-ignore keeps TS happy if not using NodeNext.
+// @ts-ignore - Node ESM requires .js extension at runtime
+import { PORT as CFG_PORT, AUTH_DIR as CFG_AUTH_DIR, PHONE_WINDOW_MS, IP_WINDOW_MS, PHONE_LIMIT, IP_LIMIT, MAX_RECONNECT_ATTEMPTS as CFG_MAX_RECONNECT_ATTEMPTS, AUTHORIZED_PHONES as CFG_AUTHORIZED_PHONES, validateEnv } from './config.mjs';
+
 // Load environment early
 dotenv.config();
 
@@ -156,6 +165,14 @@ app.get('/baileys', (req: Request, res: Response) => {
 </html>
 `);
 });
+
+// ... rest of your file remains unchanged (all routes, middleware, WhatsApp connect, graceful shutdown, etc.)
+
+// Load backup on startup
+loadBackupFromDisk();
+
+
+// (The remainder of server.ts you provided continues unchanged)
 // Baileys helpers
 function getPreferredIdFromKey(key: any) { if (!key) return null; return key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || null; }
 function extractMessageContent(m: any) { if (!m || !m.message) return ''; const msg = m.message; return msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || ''; }

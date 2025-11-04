@@ -51,8 +51,8 @@ export function validateEnv(logger = console) {
   }
 
   // Log warnings if a logger is passed
-  if (warnings.length && logger && typeof logger.warn === 'function') {
-    warnings.forEach(w => logger.warn('Config warning:', w));
+  if (warnings.length && logger && typeof (logger).warn === 'function') {
+    warnings.forEach(w => (logger ).warn('Config warning:', w));
   }
 
   return warnings;

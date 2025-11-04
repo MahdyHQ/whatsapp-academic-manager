@@ -10,6 +10,6 @@
     "skipLibCheck": true,
     "strict": false
   },
-  "include": ["server.ts", "**/*.ts", "**/*.js"],
+  "include": ["server.ts", "**/*.ts", "**/*.js", "config.mjs"],
   "exclude": ["node_modules", "dist", "frontend", "frontend/**"]
 }

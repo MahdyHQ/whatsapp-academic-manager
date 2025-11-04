@@ -29,7 +29,7 @@
   "license": "MIT",
   "engines": {
     "node": ">=24.11.0",
-    "npm": ">=11.6.1"
+    "npm": ">=11.6.2"
   },
   "dependencies": {
   "@whiskeysockets/baileys": "7.0.0-rc.6",

@@ -10,7 +10,7 @@ import { Buffer } from 'buffer';
 import fs from 'fs';
 import path from 'path';
 // Load centralized config values (fall back to ENV if needed)
-import { PORT as CFG_PORT, AUTH_DIR as CFG_AUTH_DIR, PHONE_WINDOW_MS, IP_WINDOW_MS, PHONE_LIMIT, IP_LIMIT, MAX_RECONNECT_ATTEMPTS as CFG_MAX_RECONNECT_ATTEMPTS, AUTHORIZED_PHONES as CFG_AUTHORIZED_PHONES, validateEnv } from './config.mjs';
+import { PORT as CFG_PORT, AUTH_DIR as CFG_AUTH_DIR, PHONE_WINDOW_MS, IP_WINDOW_MS, PHONE_LIMIT, IP_LIMIT, MAX_RECONNECT_ATTEMPTS as CFG_MAX_RECONNECT_ATTEMPTS, AUTHORIZED_PHONES as CFG_AUTHORIZED_PHONES, validateEnv } from './config';
 // Load environment early
 dotenv.config();
 

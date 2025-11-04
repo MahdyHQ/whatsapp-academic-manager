@@ -9,12 +9,26 @@ export const AUTHORIZED_PHONES = process.env.AUTHORIZED_PHONES
   ? new Set(process.env.AUTHORIZED_PHONES.split(',').map(p => p.trim()))
   : new Set(['+201155547529']);
 
+// Path to the Baileys README used by the server (/baileys endpoint)
+// Kept relative to the project root; server.ts expects to locate the file next to the repo root.
+export const BAILEYS_README_PATH = process.env.BAILEYS_README_PATH || '../README-Baileys.md';
+
+// Service metadata (used for logs / UI headers)
+export const SERVICE_NAME = process.env.SERVICE_NAME || 'WhatsApp Academic Manager API';
+export const SERVICE_VERSION = process.env.SERVICE_VERSION || '2.4.0';
+export const SERVICE_AUTHOR = process.env.SERVICE_AUTHOR || 'MahdyHQ';
+
 export const PHONE_LIMIT = Number(process.env.OTP_PHONE_LIMIT || 3);
 export const PHONE_WINDOW_MS = Number(process.env.OTP_PHONE_WINDOW_MS || 10 * 60 * 1000);
 export const IP_LIMIT = Number(process.env.OTP_IP_LIMIT || 30);
 export const IP_WINDOW_MS = Number(process.env.OTP_IP_WINDOW_MS || 60 * 60 * 1000);
 
 export const MAX_RECONNECT_ATTEMPTS = Number(process.env.MAX_RECONNECT_ATTEMPTS || 10);
+
+// A typed helper to return the authorized phones as an array (useful for logging)
+export function getAuthorizedPhonesArray() {
+  return Array.from(AUTHORIZED_PHONES);
+}
 
 // Validate environment and return an array of warnings (empty if OK)
 export function validateEnv(logger = console) {

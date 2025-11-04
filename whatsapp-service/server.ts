@@ -9,78 +9,153 @@ import crypto from 'crypto';
 import { Buffer } from 'buffer';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import {
-  PORT,
-  AUTH_DIR,
-  AUTHORIZED_PHONES,
-  PHONE_LIMIT,
-  PHONE_WINDOW_MS,
-  IP_LIMIT,
-  IP_WINDOW_MS,
-  MAX_RECONNECT_ATTEMPTS,
-  validateEnv
-} from './config.mjs';
-
+// Load centralized config values (fall back to ENV if needed)
+import { PORT as CFG_PORT, AUTH_DIR as CFG_AUTH_DIR, PHONE_WINDOW_MS, IP_WINDOW_MS, PHONE_LIMIT, IP_LIMIT, MAX_RECONNECT_ATTEMPTS as CFG_MAX_RECONNECT_ATTEMPTS, AUTHORIZED_PHONES as CFG_AUTHORIZED_PHONES, validateEnv } from './config.mjs';
+// Load environment early
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Ensure Buffer available globally for environments that need it
-if (typeof (globalThis as any).Buffer === 'undefined') {
-  (globalThis as any).Buffer = Buffer;
-}
-
+// Basic Express + logging setup
 const app = express();
-app.use(cors({ origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization','x-api-key'], credentials: true }));
+const PORT = CFG_PORT || parseInt(process.env.PORT || '3000', 10);
+const logger: any = pino({ level: process.env.LOG_LEVEL || 'info' });
+
+app.use(cors());
 app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const logger: any = pino({ level: 'info' });
-
-// WhatsApp connection state and runtime variables
+// Global runtime state (kept broad/`any` where external types are complex)
 let sock: any = null;
 let qrCodeData: string | null = null;
 let connectionState: string = 'disconnected';
 let connectedPhone: string | null = null;
-let sessionRestored = false;
-let connectionAttempts = 0;
 let sessionBackup: string | null = null;
-const BACKUP_FILE = path.join(__dirname, '../session_backup.json');
-let globalSaveCreds: (() => Promise<void>) | null = null;
+let sessionRestored = false;
+let globalSaveCreds: any = null;
+let connectionAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = Number(process.env.MAX_RECONNECT_ATTEMPTS || CFG_MAX_RECONNECT_ATTEMPTS || 5);
+const AUTH_DIR = process.env.AUTH_DIR || CFG_AUTH_DIR || path.join(__dirname, '..', 'auth_info');
+const BACKUP_FILE = path.join(__dirname, '..', 'session-backup.json');
 
-// Phone auth storage
-const otpStorage: Map<string, any> = new Map();
-const sessionTokens: Map<string, any> = new Map();
-const otpRequestLog: Map<string, number[]> = new Map();
-const ipRequestLog: Map<string, number[]> = new Map();
+// In-memory auth/session stores
+const sessionTokens = new Map<string, any>();
+const otpStorage = new Map<string, any>();
+const authorizedPhones = CFG_AUTHORIZED_PHONES && (CFG_AUTHORIZED_PHONES instanceof Set) ? CFG_AUTHORIZED_PHONES : new Set<string>();
 
-function _pruneAndCount(map: Map<any, any>, key: any, windowMs: number) {
+// Simple OTP/IP request logs for rate-limiting
+const otpRequestLog = new Map<string, number[]>();
+const ipRequestLog = new Map<string, number[]>();
+
+// Minimal helpers used by endpoints
+function isValidPhoneNumber(p: string) { return typeof p === 'string' && /^\+\d{6,15}$/.test(p); }
+function _pruneAndCount(map: Map<string, number[]>, key: string, windowMs: number) {
   const now = Date.now();
-  const arr: number[] = map.get(key) || [];
-  const pruned = arr.filter((ts: number) => ts > now - windowMs);
+  const arr = map.get(key) || [];
+  const pruned = arr.filter(ts => now - ts <= windowMs);
+  pruned.push(now);
   map.set(key, pruned);
   return pruned.length;
 }
-function _recordTimestamp(map: Map<any, any>, key: any) {
-  const arr: number[] = map.get(key) || [];
+function _recordTimestamp(map: Map<string, number[]>, key: string) {
+  const arr = map.get(key) || [];
   arr.push(Date.now());
   map.set(key, arr);
 }
-
-const authorizedPhones: Set<string> = AUTHORIZED_PHONES as Set<string>;
-logger.info(`📱 Authorized phones: ${Array.from(authorizedPhones).join(', ')}`);
-
-function getIconSVG(iconName: string, className = 'w-6 h-6') { /* lightweight placeholder copied from JS UI generation */
-  // In TS port we keep icons inline as in server.js when rendering HTML
-  return '';
+function generateOTP() { return String(Math.floor(100000 + Math.random() * 900000)); }
+function generateSessionToken() { return crypto.randomBytes(24).toString('hex'); }
+function getIconSVG(name: string, cls: string = 'w-6 h-6') {
+  const icons: Record<string, string> = {
+    check: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    phone: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>`,
+    database: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>`,
+    shield: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`,
+    refresh: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>`,
+    qrcode: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><rect x="3" y="3" width="5" height="5"></rect><rect x="16" y="3" width="5" height="5"></rect><rect x="3" y="16" width="5" height="5"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg>`,
+    file: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`,
+    clock: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
+    info: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`,
+    home: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`,
+    trash: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>`,
+    bell: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>`,
+    user: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="M20 21v-2a4 4 0 0 0-3-3.87"></path><path d="M4 21v-2a4 4 0 0 1 3-3.87"></path><circle cx="12" cy="7" r="4"></circle></svg>`,
+    warning: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
+  };
+  return icons[name] || '';
 }
+// Serve the Baileys README (markdown) and a simple rendered HTML page
+const BAILEYS_README_PATH = path.join(__dirname, '..', 'README-Baileys.md');
 
-function generateOTP() { return Math.floor(100000 + Math.random() * 900000).toString(); }
-function generateSessionToken() { return crypto.randomBytes(32).toString('hex'); }
-function isValidPhoneNumber(phone: string) { return /^\+\d{10,15}$/.test(phone); }
+app.get('/raw-readme', (req: Request, res: Response) => {
+  try {
+    const md = fs.readFileSync(BAILEYS_README_PATH, 'utf8');
+    res.type('text/markdown').send(md);
+  } catch (err) {
+    logger.warn('Could not read README-Baileys.md:', (err as any).message || err);
+    res.status(500).json({ success: false, error: 'Could not load README' });
+  }
+});
 
+app.get('/baileys', (req: Request, res: Response) => {
+  // Lightweight client-side markdown rendering using marked (loaded from CDN)
+  res.send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Baileys README — WhatsApp Academic Manager</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:#f7fafc;color:#111;margin:0;padding:24px}
+    .wrap{max-width:980px;margin:0 auto;background:#fff;padding:28px;border-radius:12px;box-shadow:0 10px 40px rgba(2,6,23,0.08)}
+    .header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+    .logo{height:56px}
+    .meta{color:#334155}
+    .content{margin-top:18px}
+    .warning{background:#fff7ed;border-left:4px solid #ffb020;padding:12px;border-radius:8px;margin-bottom:12px}
+    pre{white-space:pre-wrap;background:#0f172a;color:#e6eef8;padding:12px;border-radius:8px;overflow:auto}
+    a{color:#0369a1}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <img class="logo" src="https://raw.githubusercontent.com/WhiskeySockets/Baileys/refs/heads/master/Media/logo.png" alt="Baileys logo"/>
+      <div>
+        <div style="font-weight:700;font-size:18px">Baileys (embedded README)</div>
+        <div class="meta">WebSockets-based TypeScript library for interacting with the WhatsApp Web API</div>
+      </div>
+    </div>
+
+    <div class="warning">
+      <strong>NOTICE OF BREAKING CHANGE</strong>
+      <div>As of 7.0.0, multiple breaking changes were introduced into the library. Please check <a href="https://whiskey.so/migrate-latest" target="_blank">https://whiskey.so/migrate-latest</a> for more information.</div>
+    </div>
+
+    <div id="content" class="content">Loading README…</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    (async function(){
+      try{
+        const r = await fetch('/raw-readme');
+        if(!r.ok) throw new Error('Failed to fetch README');
+        const md = await r.text();
+        const html = marked.parse(md || '');
+        const container = document.getElementById('content');
+        container.innerHTML = html;
+        // make links open in new tab
+        Array.from(container.getElementsByTagName('a')).forEach(a => a.target = '_blank');
+      }catch(e){
+        const c = document.getElementById('content');
+        c.textContent = 'Failed to load README: ' + (e && e.message ? e.message : e);
+      }
+    })();
+  </script>
+</body>
+</html>
+`);
+});
 // Baileys helpers
 function getPreferredIdFromKey(key: any) { if (!key) return null; return key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || null; }
 function extractMessageContent(m: any) { if (!m || !m.message) return ''; const msg = m.message; return msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || ''; }
@@ -316,7 +391,655 @@ setInterval(() => { const now = Date.now(); let cleanedOTPs = 0; let cleanedSess
 // Standard routes + QR + status + session-info + groups/messages/send
 app.get('/', (req: Request, res: Response) => { const sessionStats = getSessionStats(); res.json({ service: 'WhatsApp Academic Manager API', status: connectionState, phone: connectedPhone, version: '2.4.0 - WhatsApp Themed + Complete Auth', author: 'MahdyHQ', timestamp: new Date().toISOString(), session: { ...sessionStats, restored: sessionRestored, backup_available: !!sessionBackup, backup_size_kb: sessionBackup ? Math.round(sessionBackup.length / 1024) : 0 }, connection: { attempts: connectionAttempts, max_attempts: MAX_RECONNECT_ATTEMPTS }, auth: { authorized_phones_count: authorizedPhones.size, active_sessions: sessionTokens.size, pending_otps: otpStorage.size }, railway: { storage: '/tmp/auth_info (ephemeral)', backup: 'In-memory + disk fallback', volumes_required: false, free_tier_compatible: true } }); });
 
-app.get('/qr', async (req: Request, res: Response) => { try { /* Render same HTML UI as server.js - omitted inlined markup for brevity */ if (connectionState === 'connected') { const sessionStats = getSessionStats(); return res.send(`<html><body><h1>Connected: ${connectedPhone}</h1></body></html>`); } if (!qrCodeData) { return res.send(`<html><body><h1>Initializing WhatsApp</h1></body></html>`); } const qrImage = await QRCode.toDataURL(qrCodeData); res.send(`<html><body><img src="${qrImage}"/></body></html>`); } catch (error) { logger.error('QR endpoint error:', error); res.status(500).json({ error: (error as Error).message }); } });
+app.get('/qr', async (req: Request, res: Response) => {
+  try {
+  const whatsappColors = {
+    primary: '#25D366',      // WhatsApp Green
+    secondary: '#128C7E',    // Dark Green
+    background: '#DCF8C6',   // Light Green
+    dark: '#075E54',         // Darker Green
+    light: '#ECE5DD'         // Light Gray
+  };
+
+  if (connectionState === 'connected') {
+    const sessionStats = getSessionStats();
+
+    return res.send(`
+        <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+              <title>WhatsApp Connected | Academic Manager</title>
+                <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+                <link rel="shortcut icon" href="/favicon.ico">
+              <style>
+                :root{
+                  --wa-primary: ${whatsappColors.primary};
+                  --wa-secondary: ${whatsappColors.secondary};
+                  --wa-bg: ${whatsappColors.background};
+                  --wa-dark: ${whatsappColors.dark};
+                  --wa-light: ${whatsappColors.light};
+                  --icon-size: 20px;
+                  --radius-lg: 16px;
+                  --shadow-strong: 0 20px 60px rgba(7, 94, 84, 0.3);
+                }
+
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                        
+                body {
+                  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                  background: linear-gradient(135deg, var(--wa-primary) 0%, var(--wa-secondary) 100%);
+                  min-height: 100vh;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  padding: 20px;
+                }
+
+                /* Icon utility */
+                .icon {
+                  width: var(--icon-size);
+                  height: var(--icon-size);
+                  display: inline-block;
+                  vertical-align: -3px;
+                  margin-right: 8px;
+                }
+                        
+            .container {
+              background: white;
+              border-radius: 16px;
+              box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
+              max-width: 600px;
+              width: 100%;
+              overflow: hidden;
+            }
+                        
+            .header {
+              background: linear-gradient(135deg, ${whatsappColors.primary} 0%, ${whatsappColors.secondary} 100%);
+              color: white;
+              padding: 32px;
+              text-align: center;
+            }
+                        
+            .status-badge {
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
+              background: rgba(255, 255, 255, 0.25);
+              backdrop-filter: blur(10px);
+              padding: 10px 20px;
+              border-radius: 50px;
+              margin-bottom: 16px;
+              font-size: 14px;
+              font-weight: 600;
+            }
+                        
+            .pulse {
+              width: 10px;
+              height: 10px;
+              background: #fff;
+              border-radius: 50%;
+              animation: pulse 2s infinite;
+            }
+                        
+            @keyframes pulse {
+              0%, 100% { opacity: 1; transform: scale(1); }
+              50% { opacity: 0.5; transform: scale(1.2); }
+            }
+                        
+            h1 {
+              font-size: 28px;
+              font-weight: 600;
+              margin-bottom: 8px;
+            }
+                        
+            .phone-display {
+              font-size: 22px;
+              font-weight: 500;
+              opacity: 0.95;
+            }
+                        
+            .content { padding: 32px; }
+                        
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 16px;
+              margin-bottom: 24px;
+            }
+                        
+            .info-card {
+              background: linear-gradient(135deg, ${whatsappColors.background} 0%, ${whatsappColors.light} 100%);
+              padding: 20px;
+              border-radius: 12px;
+              border-left: 4px solid ${whatsappColors.primary};
+            }
+                        
+            .info-card-header {
+              color: ${whatsappColors.dark};
+              font-size: 12px;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-bottom: 8px;
+            }
+                        
+            .info-card-value {
+              font-size: 20px;
+              font-weight: 700;
+              color: ${whatsappColors.secondary};
+            }
+                        
+            .feature-box {
+              background: ${whatsappColors.background};
+              border-left: 4px solid ${whatsappColors.primary};
+              padding: 20px;
+              border-radius: 12px;
+              margin-bottom: 24px;
+            }
+                        
+            .feature-box h3 {
+              font-size: 16px;
+              font-weight: 600;
+              color: ${whatsappColors.dark};
+              margin-bottom: 12px;
+            }
+                        
+            .feature-list {
+              list-style: none;
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+            }
+                        
+            .feature-list li {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              color: ${whatsappColors.secondary};
+              font-size: 14px;
+            }
+                        
+            .feature-list li::before {
+              content: '✓';
+              background: ${whatsappColors.primary};
+              color: white;
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-weight: bold;
+              font-size: 12px;
+            }
+                        
+            .actions {
+              display: flex;
+              gap: 12px;
+            }
+                        
+            .btn {
+              flex: 1;
+              padding: 14px 24px;
+              border-radius: 8px;
+              border: none;
+              font-size: 15px;
+              font-weight: 600;
+              cursor: pointer;
+              text-decoration: none;
+              text-align: center;
+              transition: all 0.3s ease;
+            }
+                        
+            .btn-primary {
+              background: ${whatsappColors.primary};
+              color: white;
+            }
+                        
+            .btn-primary:hover {
+              background: ${whatsappColors.secondary};
+              transform: translateY(-2px);
+              box-shadow: 0 10px 20px rgba(37, 211, 102, 0.3);
+            }
+                        
+            .btn-secondary {
+              background: white;
+              color: ${whatsappColors.primary};
+              border: 2px solid ${whatsappColors.primary};
+            }
+                        
+            .btn-secondary:hover {
+              background: ${whatsappColors.primary};
+              color: white;
+            }
+                        
+            @media (max-width: 640px) {
+              .info-grid { grid-template-columns: 1fr; }
+              .actions { flex-direction: column; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <div class="status-badge">
+                <span class="pulse"></span>
+                <span aria-hidden="true">${getIconSVG('check','icon')}</span>
+                <span>Connected & Active</span>
+              </div>
+              <h1><span aria-hidden="true">${getIconSVG('check','icon')}</span>WhatsApp Connected</h1>
+              <div class="phone-display">+${connectedPhone}</div>
+            </div>
+                        
+            <div class="content">
+              <div class="info-grid">
+                <div class="info-card">
+                  <div class="info-card-header">Session Status</div>
+                  <div class="info-card-value">${sessionStats.exists ? getIconSVG('check','icon') + ' Saved' : 'Not Saved'}</div>
+                </div>
+                                
+                <div class="info-card">
+                  <div class="info-card-header">Backup Status</div>
+                  <div class="info-card-value">${sessionBackup ? getIconSVG('check','icon') + ' Available' : 'Creating'}</div>
+                </div>
+                                
+                ${sessionStats.file_count ? `
+                <div class="info-card">
+                  <div class="info-card-header">Session Files</div>
+                  <div class="info-card-value">${sessionStats.file_count} files</div>
+                </div>
+                ` : ''}
+                                
+                ${sessionStats.created_hours_ago ? `
+                <div class="info-card">
+                  <div class="info-card-header">Session Age</div>
+                  <div class="info-card-value">${Math.floor(sessionStats.created_hours_ago / 24)}d ${sessionStats.created_hours_ago % 24}h</div>
+                </div>
+                ` : ''}
+              </div>
+                            
+              <div class="feature-box">
+                <h3><span aria-hidden="true">${getIconSVG('shield','icon')}</span>Session Persistence Features</h3>
+                <ul class="feature-list">
+                  <li>Auto-saved to secure storage</li>
+                  <li>Automatic backup system</li>
+                  <li>Restores on service restart</li>
+                  <li>Platform-independent</li>
+                </ul>
+              </div>
+                            
+              <div class="actions">
+                <a href="/api/session-info" class="btn btn-primary">View Details</a>
+                <a href="/" class="btn btn-secondary">API Status</a>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `);
+  }
+
+  if (!qrCodeData) {
+    return res.send(`
+        <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <meta http-equiv="refresh" content="3">
+              <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+              <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+              <link rel="shortcut icon" href="/favicon.ico">
+              <title>Initializing WhatsApp | Academic Manager</title>
+              <style>
+                :root{ --wa-primary: #25D366; --wa-secondary: #128C7E; --wa-bg: #DCF8C6; --wa-dark: #075E54; --wa-light: #ECE5DD; --icon-size:20px; }
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                        
+                body {
+                  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+                  background: linear-gradient(135deg, var(--wa-primary) 0%, var(--wa-secondary) 100%);
+                  min-height: 100vh;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  padding: 20px;
+                }
+
+                .icon { width: var(--icon-size); height: var(--icon-size); display:inline-block; vertical-align: -3px; margin-right:8px; }
+
+                .loader-container {
+                  background: white;
+                  padding: 50px;
+                  border-radius: 16px;
+                  box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
+                  text-align: center;
+                  max-width: 400px;
+                }
+                        
+            .spinner {
+              width: 60px;
+              height: 60px;
+              margin: 0 auto 30px;
+              border: 4px solid #DCF8C6;
+              border-top-color: #25D366;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+            }
+                        
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+                        
+            h2 {
+              font-size: 22px;
+              color: #075E54;
+              margin-bottom: 12px;
+            }
+                        
+            p {
+              color: #128C7E;
+              font-size: 14px;
+              line-height: 1.6;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="loader-container">
+            <div class="spinner"></div>
+            <h2>Initializing WhatsApp</h2>
+            <p>Checking for saved session...</p>
+            <p style="margin-top: 16px; font-size: 12px; opacity: 0.7;">This page will auto-refresh</p>
+          </div>
+        </body>
+        </html>
+      `);
+  }
+
+  const qrImage = await QRCode.toDataURL(qrCodeData);
+  res.send(`
+      <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+          <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+          <link rel="shortcut icon" href="/favicon.ico">
+          <title>Scan QR Code | Academic Manager</title>
+          <style>
+            :root{ --wa-primary:#25D366; --wa-secondary:#128C7E; --wa-bg:#DCF8C6; --wa-dark:#075E54; --wa-light:#ECE5DD; --icon-size:20px }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+                    
+            body {
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+              background: linear-gradient(135deg, var(--wa-primary) 0%, var(--wa-secondary) 100%);
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 20px;
+            }
+
+            .icon { width: var(--icon-size); height: var(--icon-size); display:inline-block; vertical-align:-3px; margin-right:8px }
+                    
+          .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(7, 94, 84, 0.3);
+            max-width: 550px;
+            width: 100%;
+            overflow: hidden;
+          }
+                    
+          .header {
+            background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+            color: white;
+            padding: 32px;
+            text-align: center;
+          }
+                    
+          h1 {
+            font-size: 26px;
+            font-weight: 600;
+            margin-bottom: 8px;
+          }
+                    
+          .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+          }
+                    
+          .content { padding: 32px; }
+                    
+          .qr-wrapper {
+            background: #DCF8C6;
+            padding: 24px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+          }
+                    
+          .qr-wrapper img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+          }
+                    
+          .instructions {
+            background: #FFFEF5;
+            border-left: 4px solid #FFC107;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+          }
+                    
+          .instructions h3 {
+            font-size: 15px;
+            color: #E65100;
+            margin-bottom: 12px;
+          }
+                    
+          .step-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+                    
+          .step-list li {
+            display: flex;
+            align-items: start;
+            gap: 12px;
+            color: #5D4037;
+            font-size: 14px;
+            line-height: 1.5;
+          }
+                    
+          .step-number {
+            background: #FFA000;
+            color: white;
+            min-width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 11px;
+            flex-shrink: 0;
+          }
+                    
+          .info-box {
+            background: #DCF8C6;
+            border-left: 4px solid #25D366;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+          }
+                    
+          .info-box h4 {
+            color: #075E54;
+            font-size: 14px;
+            margin-bottom: 10px;
+            font-weight: 600;
+          }
+                    
+          .info-box ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+          }
+                    
+          .info-box li {
+            color: #128C7E;
+            font-size: 13px;
+            padding-left: 24px;
+            position: relative;
+          }
+                    
+          .info-box li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            background: #25D366;
+            color: white;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+          }
+                    
+          .btn-refresh {
+            padding: 12px 18px;
+            background: #25D366;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform .15s ease, box-shadow .15s ease;
+            display:inline-flex;align-items:center;gap:8px;
+          }
+
+          .btn-refresh:hover { transform: translateY(-3px); box-shadow: 0 12px 24px rgba(37,211,102,0.18);} 
+
+          .btn-otp {
+            padding: 12px 18px;
+            background: white;
+            color: #075E54;
+            border: 2px solid #25D366;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+            display:inline-flex;align-items:center;gap:8px;
+          }
+
+          .btn-otp:hover { background:#f1fff6; transform: translateY(-3px); box-shadow: 0 10px 20px rgba(5,90,84,0.06); }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1><span aria-hidden="true">${getIconSVG('qrcode','icon')}</span>Scan QR Code</h1>
+            <p class="subtitle">Administrator Setup - One-Time Connection</p>
+          </div>
+                    
+          <div class="content">
+            <div class="qr-wrapper">
+              <img src="${qrImage}" alt="WhatsApp QR Code">
+            </div>
+                        
+            <div class="instructions">
+              <h3><span aria-hidden="true">${getIconSVG('file','icon')}</span>How to Connect</h3>
+              <ul class="step-list">
+                <li>
+                  <span class="step-number">1</span>
+                  <span>Open <strong>WhatsApp</strong> on your phone</span>
+                </li>
+                <li>
+                  <span class="step-number">2</span>
+                  <span>Tap <strong>Settings</strong> or <strong>Menu (⋮)</strong></span>
+                </li>
+                <li>
+                  <span class="step-number">3</span>
+                  <span>Tap <strong>Linked Devices</strong></span>
+                </li>
+                <li>
+                  <span class="step-number">4</span>
+                  <span>Tap <strong>Link a Device</strong></span>
+                </li>
+                <li>
+                  <span class="step-number">5</span>
+                  <span>Point your camera at this QR code</span>
+                </li>
+              </ul>
+            </div>
+                        
+            <div class="info-box">
+              <h4><span aria-hidden="true">${getIconSVG('shield','icon')}</span>Secure & Platform-Independent</h4>
+              <ul>
+                <li>Session auto-saved with backup</li>
+                <li>Works on any hosting platform</li>
+                <li>Auto-restores on restart</li>
+                <li>No cloud-specific dependencies</li>
+              </ul>
+            </div>
+                        
+            <div style="display:flex;gap:12px;flex-direction:column;align-items:center;">
+              <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+                <button onclick="location.reload()" class="btn-refresh" aria-label="Refresh QR Code">
+                  <span aria-hidden="true">${getIconSVG('refresh','icon')}</span>
+                  Refresh QR Code
+                </button>
+
+                <button onclick="location.href='/login'" class="btn-otp" aria-label="Login by Phone (OTP)">
+                  <span aria-hidden="true">${getIconSVG('qrcode','icon')}</span>
+                  Login by Phone (OTP)
+                </button>
+              </div>
+
+              <div style="margin-top:8px;font-size:13px;color:#666;">
+                <a href="/" style="color:#075E54;text-decoration:none">Return to API Home</a>
+              </div>
+            </div>
+          </div>
+        </div>
+                
+        <script>
+          // Check connection status every 3 seconds
+          setInterval(() => {
+            fetch('/api/status')
+              .then(r => r.json())
+              .then(d => {
+                if (d.status === 'connected') {
+                  window.location.href = '/qr';
+                }
+              })
+              .catch(() => {});
+          }, 3000);
+        </script>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+  logger.error('QR endpoint error:', error);
+  res.status(500).json({ error: (error as Error).message });
+  }
+});
 
 app.get('/api/status', (req: Request, res: Response) => { res.json({ success:true, status: connectionState, phone: connectedPhone, timestamp: new Date().toISOString(), session_restored: sessionRestored, backup_available: !!sessionBackup, connection_attempts: connectionAttempts }); });
 
@@ -340,7 +1063,131 @@ loadBackupFromDisk();
 function ensurePublicFavicon(){ try { const publicDir = path.join(__dirname, 'public'); if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true }); const icoPath = path.join(publicDir,'favicon.ico'); const svgPath = path.join(publicDir,'favicon.svg'); const faviconBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII='; if (!fs.existsSync(icoPath)) fs.writeFileSync(icoPath, Buffer.from(faviconBase64, 'base64')); const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\n  <circle cx="12" cy="12" r="12" fill="#25D366"/>\n  <path d=\"M7 12l3 3 8-8\" stroke=\"#fff\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n</svg>`; if (!fs.existsSync(svgPath)) fs.writeFileSync(svgPath, svgContent, 'utf8'); } catch (err) { logger.warn('Could not create public favicon files:', (err as any).message); } }
 ensurePublicFavicon();
 
-app.get('/login', (req: Request, res: Response) => { try { res.send(`<html><body><h1>Login page (TS stub)</h1></body></html>`); } catch (err) { logger.error('Login page error:', err); res.status(500).json({ success:false, error:'Failed to render login page' }); } });
+app.get('/login', (req: Request, res: Response) => {
+  try {
+  // Full login page (copied from root/server.js) — QR or Phone OTP
+  res.send(`
+      <!doctype html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+        <link rel="shortcut icon" href="/favicon.ico">
+        <title>Link WhatsApp — Academic Manager</title>
+        <style>
+          :root{ --wa-green:#25D366; --wa-dark:#075E54; --muted:#6b7280; }
+          html,body{height:100%;}
+          body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:linear-gradient(180deg,#f3faf0,#eef7f3); display:flex;align-items:center;justify-content:center;padding:24px;margin:0}
+          .card{width:100%;max-width:720px;background:#fff;padding:32px;border-radius:14px;box-shadow:0 10px 40px rgba(7,94,84,0.08);text-align:center}
+          .brand{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:6px}
+          .brand .logo{width:54px;height:54px;border-radius:12px;background:linear-gradient(135deg,var(--wa-green),#128C7E);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+          h1{font-size:22px;margin:6px 0 6px;color:var(--wa-dark)}
+          p.lead{color:var(--muted);margin:0 0 20px}
+
+          .options{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:18px}
+          .card-section{flex:1 1 300px;min-width:260px;max-width:360px;background:#fbfffb;border-radius:10px;padding:18px;border:1px solid #eef7ef}
+          .card-section h3{margin:0 0 8px;display:flex;align-items:center;gap:10px;justify-content:center;color:var(--wa-dark)}
+          .card-section p{color:var(--muted);font-size:14px;margin:0 0 12px}
+
+          .btn{display:inline-flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;border:none;cursor:pointer;font-weight:700}
+          .btn-qr{background:transparent;border:2px solid var(--wa-green);color:var(--wa-dark);padding:10px 18px}
+          .btn-qr:hover{background:#f6fff6}
+          .btn-otp{background:var(--wa-green);color:#fff}
+
+          input[type=text]{width:100%;padding:12px;border-radius:8px;border:1px solid #e9f3ec;margin-bottom:10px;font-size:15px}
+          .muted{color:var(--muted);font-size:13px}
+          .alert{display:none;background:#fff4e5;border:1px solid #ffd097;color:#6b4b00;padding:12px;border-radius:8px;margin-top:12px}
+          .hint{font-size:13px;color:#9ca3af;margin-top:12px}
+
+          @media (max-width:720px){
+            .options{flex-direction:column}
+            .card-section{max-width:none}
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card" role="main">
+          <div class="brand">
+            <div class="logo">${getIconSVG('qrcode','w-6 h-6')}</div>
+            <div style="text-align:left">
+              <div style="font-weight:700;color:var(--wa-dark);">Academic Manager</div>
+              <div style="font-size:13px;color:var(--muted)">Secure WhatsApp linking for administrators</div>
+            </div>
+          </div>
+
+          <h1>Link your WhatsApp account</h1>
+          <p class="lead">Two secure ways to connect: scan the QR code with WhatsApp or login using phone OTP.</p>
+
+          <div class="options" aria-live="polite">
+            <div class="card-section">
+              <h3>${getIconSVG('qrcode','w-6 h-6')} Scan QR Code</h3>
+              <p>Open the QR page on the device you'll use to link the account and scan with WhatsApp → Settings → Linked devices → Link a device.</p>
+              <div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
+                <a class="btn btn-qr" href="/qr" role="button" aria-label="Open QR page">${getIconSVG('qrcode','w-5 h-5')} Open QR Page</a>
+              </div>
+            </div>
+
+            <div class="card-section">
+              <h3>${getIconSVG('phone','w-6 h-6')} Login by Phone (OTP)</h3>
+              <p>Enter an authorized phone number (international format) to receive a one-time code via WhatsApp.</p>
+              <div style="margin-top:6px">
+                <input id="phone" type="text" placeholder="+201155547529" aria-label="Phone number" />
+                <div style="display:flex;gap:8px;justify-content:center">
+                  <button id="send" class="btn btn-otp" aria-live="polite">${getIconSVG('phone','w-4 h-4')} Request OTP</button>
+                </div>
+                <div id="status" class="muted" style="margin-top:10px"></div>
+                <div id="alert" class="alert" role="alert"></div>
+                <div class="hint">Authorized phones must be added by the administrator. In dev, server logs may include a developer OTP.</div>
+              </div>
+            </div>
+          </div>
+
+          <script>
+            document.getElementById('send').addEventListener('click', async () => {
+              const phone = document.getElementById('phone').value.trim();
+              const status = document.getElementById('status');
+              const alertEl = document.getElementById('alert');
+              status.textContent = '';
+              alertEl.style.display = 'none';
+              alertEl.textContent = '';
+              if (!phone) { status.textContent = 'Please enter a phone number in international format (e.g. +2011...).'; return; }
+              try {
+                const resp = await fetch('/api/auth/request-otp', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone })
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                  status.textContent = data.error || 'Failed to request OTP';
+                  alertEl.textContent = data.error || '';
+                  if (alertEl.textContent) { alertEl.style.display = 'block'; }
+                  return;
+                }
+
+                status.textContent = data.message || 'OTP generated. Check WhatsApp.';
+                if (data.dev_otp) status.textContent += ' (dev OTP: ' + data.dev_otp + ')';
+
+                if (data.warning || (data.message && data.message.toLowerCase().includes('not connected'))) {
+                  alertEl.textContent = (data.warning || 'OTP not delivered via WhatsApp. Use the QR option or contact the administrator.');
+                  alertEl.style.display = 'block';
+                }
+              } catch (err) {
+                status.textContent = 'Network error. Check console for details.';
+                alertEl.textContent = 'Network error while requesting OTP. Try again or use QR.';
+                alertEl.style.display = 'block';
+                console.error(err);
+              }
+            });
+          </script>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch (err) {
+  logger.error('Login page error:', err);
+  res.status(500).json({ success:false, error: 'Failed to render login page' });
+  }
+});
 
 app.get('/api/qr', async (req: Request, res: Response) => { try { const qr = qrCodeData ? await QRCode.toDataURL(qrCodeData) : null; return res.json({ success:true, connected: connectionState === 'connected', connectionState, phone: connectedPhone, qr }); } catch (err) { logger.error('API QR error:', err); return res.status(500).json({ success:false, error:'Failed to generate QR' }); } });
 

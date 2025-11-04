@@ -8,8 +8,12 @@
  * @date 2025-11-01
  */
 
-import pkg from '@whiskeysockets/baileys';
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } = pkg;
+// Import Baileys default and named exports correctly.
+// Older code imported the package default as `pkg` and destructured from it,
+// which fails because the default export is the socket function itself.
+// Importing the default and named exports directly ensures helpers like
+// `useMultiFileAuthState` and `fetchLatestBaileysVersion` are available.
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import express from 'express';
 import QRCode from 'qrcode';
 import pino from 'pino';
@@ -78,8 +82,7 @@ let connectionState = 'disconnected';
 let connectedPhone = null;
 let sessionRestored = false;
 let connectionAttempts = 0;
-// MAX_RECONNECT_ATTEMPTS comes from config.mjs
-const MAX_RECONNECT_ATTEMPTS = MAX_RECONNECT_ATTEMPTS;
+// MAX_RECONNECT_ATTEMPTS comes from config.mjs (imported)
 
 // Session backup
 let sessionBackup = null;
@@ -1915,96 +1918,129 @@ ensurePublicFavicon();
 
 // Convenience login page (QR or Phone OTP) for administrators
 app.get('/login', (req, res) => {
-        try {
-                res.send(`
-                        <!doctype html>
-                        <html>
-                        <head>
-                            <meta charset="utf-8" />
-                            <meta name="viewport" content="width=device-width,initial-scale=1" />
-                            <title>Login - WhatsApp Academic Manager</title>
-                            <style>
-                                :root{ --wa-green:#25D366; --wa-dark:#075E54; }
-                                body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:linear-gradient(180deg,#f7f9fa,#f3f7f5); padding:28px;}
-                                .card{max-width:720px;margin:28px auto;background:#fff;padding:28px;border-radius:12px;box-shadow:0 10px 30px rgba(7,94,84,0.06)}
-                                h1{margin-bottom:8px;color:var(--wa-dark)}
-                                .row{display:flex;gap:12px;align-items:center}
-                                input[type=text]{flex:1;padding:12px;border:1px solid #e6ece9;border-radius:8px;box-shadow:inset 0 1px 2px rgba(0,0,0,0.02)}
-                                .muted{color:#6b7280;font-size:13px;margin-top:8px}
-                                .alert-warning{display:none;background:#fff4e5;border:1px solid #ffd097;color:#6b4b00;padding:12px;border-radius:8px;margin-top:12px}
-                                .btn-primary{padding:10px 16px;border-radius:8px;border:none;background:var(--wa-green);color:white;font-weight:700;cursor:pointer;box-shadow:0 8px 18px rgba(37,211,102,0.12)}
-                                .btn-primary:hover{transform:translateY(-2px)}
-                                .btn-link{display:inline-block;padding:10px 16px;border-radius:8px;border:2px solid var(--wa-green);background:white;color:var(--wa-dark);font-weight:700;text-decoration:none}
-                                .hint{font-size:13px;color:#9ca3af;margin-top:12px}
-                            </style>
-                        </head>
-                        <body>
-                            <div class="card">
-                                <h1>Link WhatsApp Account</h1>
-                                <p class="muted">Two options to link your WhatsApp account: scan QR code or login by phone (OTP).</p>
+    try {
+        // Centered, professional login page with clear CTAs and icons
+        res.send(`
+            <!doctype html>
+            <html lang="en">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width,initial-scale=1" />
+                <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+                <link rel="shortcut icon" href="/favicon.ico">
+                <title>Link WhatsApp — Academic Manager</title>
+                <style>
+                    :root{ --wa-green:#25D366; --wa-dark:#075E54; --muted:#6b7280; }
+                    html,body{height:100%;}
+                    body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:linear-gradient(180deg,#f3faf0,#eef7f3); display:flex;align-items:center;justify-content:center;padding:24px;margin:0}
+                    .card{width:100%;max-width:720px;background:#fff;padding:32px;border-radius:14px;box-shadow:0 10px 40px rgba(7,94,84,0.08);text-align:center}
+                    .brand{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:6px}
+                    .brand .logo{width:54px;height:54px;border-radius:12px;background:linear-gradient(135deg,var(--wa-green),#128C7E);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+                    h1{font-size:22px;margin:6px 0 6px;color:var(--wa-dark)}
+                    p.lead{color:var(--muted);margin:0 0 20px}
 
-                                <h3>Option A — QR Code</h3>
-                                <p class="muted">Open this page on your admin device and click the button to open the QR UI.</p>
-                                <div style="margin-bottom:18px"><a href="/qr" class="btn-link">Open QR Page</a></div>
+                    .options{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:18px}
+                    .card-section{flex:1 1 300px;min-width:260px;max-width:360px;background:#fbfffb;border-radius:10px;padding:18px;border:1px solid #eef7ef}
+                    .card-section h3{margin:0 0 8px;display:flex;align-items:center;gap:10px;justify-content:center;color:var(--wa-dark)}
+                    .card-section p{color:var(--muted);font-size:14px;margin:0 0 12px}
 
-                                <h3>Option B — Login by Phone (OTP)</h3>
-                                <p class="muted">Enter an authorized phone (international format) to receive an OTP via WhatsApp.</p>
-                                <div class="row" style="margin-top:8px">
-                                    <input id="phone" type="text" placeholder="+201155547529" />
-                                    <button id="send" class="btn-primary">Request OTP</button>
-                                </div>
-                                <div class="muted" id="status"></div>
-                                <div id="alert" class="alert-warning" role="alert" aria-live="polite" ></div>
-                                <div class="hint">Authorized phones must be added by the administrator. For testing, developer OTP may be shown in server logs in dev mode.</div>
+                    .btn{display:inline-flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;border:none;cursor:pointer;font-weight:700}
+                    .btn-qr{background:transparent;border:2px solid var(--wa-green);color:var(--wa-dark);padding:10px 18px}
+                    .btn-qr:hover{background:#f6fff6}
+                    .btn-otp{background:var(--wa-green);color:#fff}
 
-                                <script>
-                                    document.getElementById('send').addEventListener('click', async () => {
-                                        const phone = document.getElementById('phone').value.trim();
-                                        const status = document.getElementById('status');
-                                        const alertEl = document.getElementById('alert');
-                                        status.textContent = '';
-                                        alertEl.style.display = 'none';
-                                        alertEl.textContent = '';
-                                        if (!phone) { status.textContent = 'Please enter a phone number.'; return; }
-                                        try {
-                                            const resp = await fetch('/api/auth/request-otp', {
-                                                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone })
-                                            });
-                                            const data = await resp.json();
-                                            if (!resp.ok) {
-                                                // Show error and alert
-                                                status.textContent = data.error || 'Failed to request OTP';
-                                                alertEl.textContent = data.error || '';
-                                                if (alertEl.textContent) { alertEl.style.display = 'block'; }
-                                                return;
-                                            }
+                    input[type=text]{width:100%;padding:12px;border-radius:8px;border:1px solid #e9f3ec;margin-bottom:10px;font-size:15px}
+                    .muted{color:var(--muted);font-size:13px}
+                    .alert{display:none;background:#fff4e5;border:1px solid #ffd097;color:#6b4b00;padding:12px;border-radius:8px;margin-top:12px}
+                    .hint{font-size:13px;color:#9ca3af;margin-top:12px}
 
-                                            // Success path (OTP generated)
-                                            status.textContent = data.message || 'OTP generated. Check WhatsApp.';
-                                            if (data.dev_otp) status.textContent += ' (dev OTP: ' + data.dev_otp + ')';
+                    @media (max-width:720px){
+                        .options{flex-direction:column}
+                        .card-section{max-width:none}
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="card" role="main">
+                    <div class="brand">
+                        <div class="logo">${getIconSVG('qrcode','w-6 h-6')}</div>
+                        <div style="text-align:left">
+                            <div style="font-weight:700;color:var(--wa-dark);">Academic Manager</div>
+                            <div style="font-size:13px;color:var(--muted)">Secure WhatsApp linking for administrators</div>
+                        </div>
+                    </div>
 
-                                            // If delivery did not occur (WhatsApp offline) or warning present, show an actionable banner
-                                            if (data.warning || (data.message && data.message.toLowerCase().includes('not connected'))) {
-                                                alertEl.textContent = (data.warning || 'OTP not delivered via WhatsApp. Please use the QR option or contact the administrator.');
-                                                alertEl.style.display = 'block';
-                                            }
+                    <h1>Link your WhatsApp account</h1>
+                    <p class="lead">Two secure ways to connect: scan the QR code with WhatsApp or login using phone OTP.</p>
 
-                                        } catch (err) {
-                                            status.textContent = 'Network error. See console.';
-                                            alertEl.textContent = 'Network error while requesting OTP. Try again or use QR.';
-                                            alertEl.style.display = 'block';
-                                            console.error(err);
-                                        }
-                                    });
-                                </script>
+                    <div class="options" aria-live="polite">
+                        <div class="card-section">
+                            <h3>${getIconSVG('qrcode','w-6 h-6')} Scan QR Code</h3>
+                            <p>Open the QR page on the device you'll use to link the account and scan with WhatsApp → Settings → Linked devices → Link a device.</p>
+                            <div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
+                                <a class="btn btn-qr" href="/qr" role="button" aria-label="Open QR page">${getIconSVG('qrcode','w-5 h-5')} Open QR Page</a>
                             </div>
-                        </body>
-                        </html>
-                `);
-        } catch (err) {
-                logger.error('Login page error:', err);
-                res.status(500).json({ success: false, error: 'Failed to render login page' });
-        }
+                        </div>
+
+                        <div class="card-section">
+                            <h3>${getIconSVG('phone','w-6 h-6')} Login by Phone (OTP)</h3>
+                            <p>Enter an authorized phone number (international format) to receive a one-time code via WhatsApp.</p>
+                            <div style="margin-top:6px">
+                                <input id="phone" type="text" placeholder="+201155547529" aria-label="Phone number" />
+                                <div style="display:flex;gap:8px;justify-content:center">
+                                    <button id="send" class="btn btn-otp" aria-live="polite">${getIconSVG('phone','w-4 h-4')} Request OTP</button>
+                                </div>
+                                <div id="status" class="muted" style="margin-top:10px"></div>
+                                <div id="alert" class="alert" role="alert"></div>
+                                <div class="hint">Authorized phones must be added by the administrator. In dev, server logs may include a developer OTP.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <script>
+                        document.getElementById('send').addEventListener('click', async () => {
+                            const phone = document.getElementById('phone').value.trim();
+                            const status = document.getElementById('status');
+                            const alertEl = document.getElementById('alert');
+                            status.textContent = '';
+                            alertEl.style.display = 'none';
+                            alertEl.textContent = '';
+                            if (!phone) { status.textContent = 'Please enter a phone number in international format (e.g. +2011...).'; return; }
+                            try {
+                                const resp = await fetch('/api/auth/request-otp', {
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone })
+                                });
+                                const data = await resp.json();
+                                if (!resp.ok) {
+                                    status.textContent = data.error || 'Failed to request OTP';
+                                    alertEl.textContent = data.error || '';
+                                    if (alertEl.textContent) { alertEl.style.display = 'block'; }
+                                    return;
+                                }
+
+                                status.textContent = data.message || 'OTP generated. Check WhatsApp.';
+                                if (data.dev_otp) status.textContent += ' (dev OTP: ' + data.dev_otp + ')';
+
+                                if (data.warning || (data.message && data.message.toLowerCase().includes('not connected'))) {
+                                    alertEl.textContent = (data.warning || 'OTP not delivered via WhatsApp. Use the QR option or contact the administrator.');
+                                    alertEl.style.display = 'block';
+                                }
+                            } catch (err) {
+                                status.textContent = 'Network error. Check console for details.';
+                                alertEl.textContent = 'Network error while requesting OTP. Try again or use QR.';
+                                alertEl.style.display = 'block';
+                                console.error(err);
+                            }
+                        });
+                    </script>
+                </div>
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        logger.error('Login page error:', err);
+        res.status(500).json({ success: false, error: 'Failed to render login page' });
+    }
 });
 
 // JSON QR endpoint useful for API consumers (returns data URL when available)

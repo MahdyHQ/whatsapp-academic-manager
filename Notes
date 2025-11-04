@@ -74,3 +74,21 @@ sleep 2
 cd /workspaces/whatsapp-academic-manager/backend && source ../.venv/bin/activate && python main.py
 
 i now want to run main.py backend server at the best free online service instead of github codespaces
+
+
+
+
+Top priority (I recommend starting here):
+
+Add environment validation (item 1) — avoids surprises in production and informs you early of missing config. Low-risk and quick.
+Centralize config/constants (item 2) — makes future changes safe and configurable.
+Graceful shutdown (item 3) — prevents session corruption and helps session backups persist.
+Next (after the above):
+
+Improve logging, tighten OTP security, add README.
+Add light unit tests for helpers (generateOTP, validation, rate-limits).
+Optionally persist OTPs to disk or use Redis (tradeoff: multi-instance support vs additional dependency).
+Risky / larger:
+
+Change Baileys version or update package.json (needs testing — I can attempt but could introduce runtime mismatches).
+Integrate external services (Twilio) — you said only free services, so we won't add paid SMS.

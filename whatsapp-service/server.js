@@ -21,22 +21,40 @@ import { Buffer } from 'buffer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+    PORT,
+    AUTH_DIR,
+    AUTHORIZED_PHONES,
+    PHONE_LIMIT,
+    PHONE_WINDOW_MS,
+    IP_LIMIT,
+    IP_WINDOW_MS,
+    MAX_RECONNECT_ATTEMPTS,
+    validateEnv
+} from './config.mjs';
 
 // ES Module dirname fix
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Make crypto and Buffer globally available for Baileys
-globalThis.crypto = crypto;
-globalThis.Buffer = Buffer;
+// Make crypto and Buffer globally available for Baileys when missing
+// In newer Node versions (>=24) `globalThis.crypto` may be present and read-only.
+// Only assign when not already defined to avoid TypeErrors.
+try {
+    if (typeof globalThis.crypto === 'undefined') {
+        globalThis.crypto = crypto;
+    }
+} catch (e) {
+    // Ignore if globalThis.crypto is read-only (Node 24+); Baileys will use the native Web Crypto
+}
+
+if (typeof globalThis.Buffer === 'undefined') {
+    globalThis.Buffer = Buffer;
+}
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Use /tmp for Railway - persists during deployment
-const AUTH_DIR = '/tmp/auth_info';
 
 // Enhanced CORS - Allow all origins
 app.use(cors({
@@ -60,22 +78,42 @@ let connectionState = 'disconnected';
 let connectedPhone = null;
 let sessionRestored = false;
 let connectionAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+// MAX_RECONNECT_ATTEMPTS comes from config.mjs
+const MAX_RECONNECT_ATTEMPTS = MAX_RECONNECT_ATTEMPTS;
 
 // Session backup
 let sessionBackup = null;
 const BACKUP_FILE = path.join(__dirname, '../session_backup.json');
+// Global holder for saveCreds function returned by Baileys auth helper
+let globalSaveCreds = null;
 
 // ==================== PHONE AUTHENTICATION STORAGE ====================
 const otpStorage = new Map();
 const sessionTokens = new Map();
 
-// Authorized phone numbers - Load from env or use default
-const authorizedPhones = new Set(
-    process.env.AUTHORIZED_PHONES 
-        ? process.env.AUTHORIZED_PHONES.split(',').map(p => p.trim())
-        : ['+201155547529']
-);
+// Simple in-memory rate limiting logs for OTP requests
+const otpRequestLog = new Map(); // phone -> [timestamps]
+const ipRequestLog = new Map();  // ip -> [timestamps]
+
+// OTP / rate-limit configuration imported from config.mjs
+// PHONE_LIMIT, PHONE_WINDOW_MS, IP_LIMIT, IP_WINDOW_MS are provided by config.mjs
+
+function _pruneAndCount(map, key, windowMs) {
+    const now = Date.now();
+    const arr = map.get(key) || [];
+    const pruned = arr.filter(ts => ts > now - windowMs);
+    map.set(key, pruned);
+    return pruned.length;
+}
+
+function _recordTimestamp(map, key) {
+    const arr = map.get(key) || [];
+    arr.push(Date.now());
+    map.set(key, arr);
+}
+
+// Authorized phone numbers - centralized in config
+const authorizedPhones = AUTHORIZED_PHONES;
 
 logger.info(`📱 Authorized phones: ${Array.from(authorizedPhones).join(', ')}`);
 
@@ -401,7 +439,9 @@ async function connectWhatsApp() {
             sessionRestored = true;
         }
         
-        const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    // expose saveCreds globally so graceful shutdown can persist credentials
+    try { globalSaveCreds = saveCreds; } catch (e) { logger.warn('Could not set globalSaveCreds', e.message); }
         const { version } = await fetchLatestBaileysVersion();
 
         logger.info(`📦 Using Baileys version: ${version.join('.')}`);
@@ -627,14 +667,23 @@ app.post('/api/auth/request-otp', async (req, res) => {
             });
         }
         
-        // Check if WhatsApp is connected
-        if (!sock || connectionState !== 'connected') {
-            return res.status(503).json({ 
-                success: false, 
-                error: 'WhatsApp service is not connected. Please try again later.',
-                status: connectionState,
-                hint: 'Administrator needs to scan QR code'
-            });
+        // NOTE: We allow OTP generation even when WhatsApp is not connected so
+        // the two linking methods (QR scanning to connect the WhatsApp session
+        // vs phone OTP login) are independent. If WhatsApp is connected we will
+        // attempt delivery via WhatsApp; otherwise we store the OTP and return
+        // a response that clearly indicates delivery did not occur.
+
+        // Rate limiting: per-phone and per-IP
+        const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || req.connection?.remoteAddress || 'unknown';
+        const phoneCount = _pruneAndCount(otpRequestLog, phone, PHONE_WINDOW_MS);
+        if (phoneCount >= PHONE_LIMIT) {
+            logger.warn(`Rate limit hit for phone ${phone}`);
+            return res.status(429).json({ success: false, error: `Too many OTP requests for this phone. Try again later.` });
+        }
+        const ipCount = _pruneAndCount(ipRequestLog, ip, IP_WINDOW_MS);
+        if (ipCount >= IP_LIMIT) {
+            logger.warn(`Rate limit hit for IP ${ip}`);
+            return res.status(429).json({ success: false, error: `Too many requests from this IP. Try again later.` });
         }
         
         // Generate OTP
@@ -648,36 +697,49 @@ app.post('/api/auth/request-otp', async (req, res) => {
             attempts: 0,
             maxAttempts: 3
         });
+
+        // Record request timestamps for rate limiting
+        _recordTimestamp(otpRequestLog, phone);
+        _recordTimestamp(ipRequestLog, ip);
         
         // Send OTP via WhatsApp
         const message = `🔐 *Academic Manager - Login Verification*\n\nYour verification code is:\n\n*${otp}*\n\nThis code expires in 5 minutes.\n\n_If you didn't request this code, please ignore this message._\n\n— Academic Manager by MahdyHQ`;
         
-        try {
-            await sock.sendMessage(phone + '@s.whatsapp.net', { text: message });
-            
-            logger.info(`📱 OTP sent to ${phone}: ${otp}`);
-            
-            res.json({ 
-                success: true, 
-                message: 'Verification code sent to your WhatsApp',
+        // Attempt delivery only if the WhatsApp socket is connected.
+        if (sock && connectionState === 'connected') {
+            try {
+                await sock.sendMessage(phone + '@s.whatsapp.net', { text: message });
+                logger.info(`📱 OTP sent to ${phone}: ${otp}`);
+                return res.json({
+                    success: true,
+                    message: 'Verification code sent to your WhatsApp',
+                    expiresIn: 300,
+                    phone: phone,
+                    dev_otp: process.env.NODE_ENV === 'development' ? otp : undefined
+                });
+            } catch (sendError) {
+                logger.error(`Failed to send OTP via WhatsApp to ${phone}:`, sendError);
+                logger.info(`📝 OTP for ${phone} (WhatsApp delivery failed): ${otp}`);
+                return res.json({
+                    success: true,
+                    message: 'Verification code generated. Check server logs if not received.',
+                    expiresIn: 300,
+                    phone: phone,
+                    warning: 'WhatsApp delivery may have failed',
+                    dev_otp: process.env.NODE_ENV === 'development' ? otp : undefined
+                });
+            }
+        } else {
+            // WhatsApp not connected — return success but inform caller delivery did not occur.
+            logger.warn(`⚠️ OTP generated for ${phone} but WhatsApp is not connected`);
+            logger.info(`📝 OTP for ${phone} (not delivered): ${otp}`);
+            return res.json({
+                success: true,
+                message: 'Verification code generated but WhatsApp service is not connected. Delivery via WhatsApp was not performed.',
                 expiresIn: 300,
                 phone: phone,
-                // For development only
+                warning: 'WhatsApp not connected - OTP not delivered',
                 dev_otp: process.env.NODE_ENV === 'development' ? otp : undefined
-            });
-        } catch (sendError) {
-            logger.error(`Failed to send OTP via WhatsApp to ${phone}:`, sendError);
-            
-            // Still return success but log OTP for admin
-            logger.info(`📝 OTP for ${phone} (WhatsApp delivery failed): ${otp}`);
-            
-            res.json({ 
-                success: true, 
-                message: 'Verification code generated. Check server logs if not received.',
-                expiresIn: 300,
-                phone: phone,
-                warning: 'WhatsApp delivery may have failed',
-                dev_otp: otp // For development - REMOVE IN PRODUCTION
             });
         }
         
@@ -867,6 +929,34 @@ app.get('/api/auth/authorized-phones', authenticateAPIKey, (req, res) => {
             success: false, 
             error: 'Failed to list authorized phones' 
         });
+    }
+});
+
+// GET /api/auth/otp/:phone - Admin only (free fallback)
+// Returns the currently-generated OTP for a phone if available.
+// Protected by API key via `authenticateAPIKey` middleware.
+app.get('/api/auth/otp/:phone', authenticateAPIKey, (req, res) => {
+    try {
+        const phone = req.params.phone;
+        if (!phone) return res.status(400).json({ success: false, error: 'Phone number required' });
+
+        const stored = otpStorage.get(phone);
+        if (!stored) {
+            return res.status(404).json({ success: false, error: 'No OTP found for this phone' });
+        }
+
+        const expiresIn = Math.max(0, Math.floor((stored.expiresAt - Date.now()) / 1000));
+
+        return res.json({
+            success: true,
+            phone,
+            code: stored.code,
+            expiresAt: stored.expiresAt,
+            expiresInSeconds: expiresIn
+        });
+    } catch (error) {
+        logger.error('Admin OTP fetch error:', error);
+        return res.status(500).json({ success: false, error: 'Failed to fetch OTP' });
     }
 });
 
@@ -1463,23 +1553,34 @@ app.get('/qr', async (req, res) => {
                     }
                     
                     .btn-refresh {
-                        width: 100%;
-                        padding: 14px;
+                        padding: 12px 18px;
                         background: #25D366;
                         color: white;
                         border: none;
-                        border-radius: 8px;
+                        border-radius: 10px;
                         font-size: 15px;
-                        font-weight: 600;
+                        font-weight: 700;
                         cursor: pointer;
-                        transition: all 0.3s ease;
+                        transition: transform .15s ease, box-shadow .15s ease;
+                        display:inline-flex;align-items:center;gap:8px;
                     }
-                    
-                    .btn-refresh:hover {
-                        background: #128C7E;
-                        transform: translateY(-2px);
-                        box-shadow: 0 10px 20px rgba(37, 211, 102, 0.3);
+
+                    .btn-refresh:hover { transform: translateY(-3px); box-shadow: 0 12px 24px rgba(37,211,102,0.18);} 
+
+                    .btn-otp {
+                        padding: 12px 18px;
+                        background: white;
+                        color: #075E54;
+                        border: 2px solid #25D366;
+                        border-radius: 10px;
+                        font-size: 15px;
+                        font-weight: 700;
+                        cursor: pointer;
+                        transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+                        display:inline-flex;align-items:center;gap:8px;
                     }
+
+                    .btn-otp:hover { background:#f1fff6; transform: translateY(-3px); box-shadow: 0 10px 20px rgba(5,90,84,0.06); }
                 </style>
             </head>
             <body>
@@ -1530,9 +1631,23 @@ app.get('/qr', async (req, res) => {
                             </ul>
                         </div>
                         
-                        <button onclick="location.reload()" class="btn-refresh">
-                            <span aria-hidden="true">${getIconSVG('refresh','icon')}</span>Refresh QR Code
-                        </button>
+                        <div style="display:flex;gap:12px;flex-direction:column;align-items:center;">
+                            <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+                                <button onclick="location.reload()" class="btn-refresh" aria-label="Refresh QR Code">
+                                    <span aria-hidden="true">${getIconSVG('refresh','icon')}</span>
+                                    Refresh QR Code
+                                </button>
+
+                                <button onclick="location.href='/login'" class="btn-otp" aria-label="Login by Phone (OTP)">
+                                    <span aria-hidden="true">${getIconSVG('qrcode','icon')}</span>
+                                    Login by Phone (OTP)
+                                </button>
+                            </div>
+
+                            <div style="margin-top:8px;font-size:13px;color:#666;">
+                                <a href="/" style="color:#075E54;text-decoration:none">Return to API Home</a>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -1808,7 +1923,20 @@ app.get('/login', (req, res) => {
                             <meta charset="utf-8" />
                             <meta name="viewport" content="width=device-width,initial-scale=1" />
                             <title>Login - WhatsApp Academic Manager</title>
-                            <style>body{font-family:sans-serif;background:#f7f7f8;padding:24px} .card{max-width:720px;margin:24px auto;background:#fff;padding:24px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.06)} h1{margin-bottom:12px} .row{display:flex;gap:12px;align-items:center} input[type=text]{flex:1;padding:10px;border:1px solid #ddd;border-radius:6px} button{padding:10px 14px;border-radius:6px;border:none;background:#25D366;color:#fff;font-weight:600;cursor:pointer} .muted{color:#666;font-size:13px;margin-top:8px}</style>
+                            <style>
+                                :root{ --wa-green:#25D366; --wa-dark:#075E54; }
+                                body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:linear-gradient(180deg,#f7f9fa,#f3f7f5); padding:28px;}
+                                .card{max-width:720px;margin:28px auto;background:#fff;padding:28px;border-radius:12px;box-shadow:0 10px 30px rgba(7,94,84,0.06)}
+                                h1{margin-bottom:8px;color:var(--wa-dark)}
+                                .row{display:flex;gap:12px;align-items:center}
+                                input[type=text]{flex:1;padding:12px;border:1px solid #e6ece9;border-radius:8px;box-shadow:inset 0 1px 2px rgba(0,0,0,0.02)}
+                                .muted{color:#6b7280;font-size:13px;margin-top:8px}
+                                .alert-warning{display:none;background:#fff4e5;border:1px solid #ffd097;color:#6b4b00;padding:12px;border-radius:8px;margin-top:12px}
+                                .btn-primary{padding:10px 16px;border-radius:8px;border:none;background:var(--wa-green);color:white;font-weight:700;cursor:pointer;box-shadow:0 8px 18px rgba(37,211,102,0.12)}
+                                .btn-primary:hover{transform:translateY(-2px)}
+                                .btn-link{display:inline-block;padding:10px 16px;border-radius:8px;border:2px solid var(--wa-green);background:white;color:var(--wa-dark);font-weight:700;text-decoration:none}
+                                .hint{font-size:13px;color:#9ca3af;margin-top:12px}
+                            </style>
                         </head>
                         <body>
                             <div class="card">
@@ -1817,35 +1945,54 @@ app.get('/login', (req, res) => {
 
                                 <h3>Option A — QR Code</h3>
                                 <p class="muted">Open this page on your admin device and click the button to open the QR UI.</p>
-                                <div style="margin-bottom:18px"><a href="/qr"><button>Open QR Page</button></a></div>
+                                <div style="margin-bottom:18px"><a href="/qr" class="btn-link">Open QR Page</a></div>
 
                                 <h3>Option B — Login by Phone (OTP)</h3>
                                 <p class="muted">Enter an authorized phone (international format) to receive an OTP via WhatsApp.</p>
                                 <div class="row" style="margin-top:8px">
                                     <input id="phone" type="text" placeholder="+201155547529" />
-                                    <button id="send">Request OTP</button>
+                                    <button id="send" class="btn-primary">Request OTP</button>
                                 </div>
                                 <div class="muted" id="status"></div>
+                                <div id="alert" class="alert-warning" role="alert" aria-live="polite" ></div>
+                                <div class="hint">Authorized phones must be added by the administrator. For testing, developer OTP may be shown in server logs in dev mode.</div>
 
                                 <script>
                                     document.getElementById('send').addEventListener('click', async () => {
                                         const phone = document.getElementById('phone').value.trim();
                                         const status = document.getElementById('status');
+                                        const alertEl = document.getElementById('alert');
                                         status.textContent = '';
+                                        alertEl.style.display = 'none';
+                                        alertEl.textContent = '';
                                         if (!phone) { status.textContent = 'Please enter a phone number.'; return; }
                                         try {
                                             const resp = await fetch('/api/auth/request-otp', {
                                                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone })
                                             });
                                             const data = await resp.json();
-                                            if (resp.ok) {
-                                                status.textContent = data.message || 'OTP sent. Check WhatsApp.';
-                                                if (data.dev_otp) status.textContent += ' (dev OTP: ' + data.dev_otp + ')';
-                                            } else {
+                                            if (!resp.ok) {
+                                                // Show error and alert
                                                 status.textContent = data.error || 'Failed to request OTP';
+                                                alertEl.textContent = data.error || '';
+                                                if (alertEl.textContent) { alertEl.style.display = 'block'; }
+                                                return;
                                             }
+
+                                            // Success path (OTP generated)
+                                            status.textContent = data.message || 'OTP generated. Check WhatsApp.';
+                                            if (data.dev_otp) status.textContent += ' (dev OTP: ' + data.dev_otp + ')';
+
+                                            // If delivery did not occur (WhatsApp offline) or warning present, show an actionable banner
+                                            if (data.warning || (data.message && data.message.toLowerCase().includes('not connected'))) {
+                                                alertEl.textContent = (data.warning || 'OTP not delivered via WhatsApp. Please use the QR option or contact the administrator.');
+                                                alertEl.style.display = 'block';
+                                            }
+
                                         } catch (err) {
                                             status.textContent = 'Network error. See console.';
+                                            alertEl.textContent = 'Network error while requesting OTP. Try again or use QR.';
+                                            alertEl.style.display = 'block';
                                             console.error(err);
                                         }
                                     });
@@ -1893,7 +2040,7 @@ app.use((err, req, res, next) => {
         res.status(status).json({ success: false, error: err && err.message ? err.message : 'Internal Server Error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     logger.info('='.repeat(70));
     logger.info('🚀 WhatsApp Academic Manager API v2.4.0');
     logger.info('   WhatsApp Themed + Complete Phone Authentication');
@@ -1913,5 +2060,68 @@ app.listen(PORT, () => {
     logger.info(`📅 Date: ${new Date().toISOString().split('T')[0]}`);
     logger.info('='.repeat(70));
     
+    // Validate environment and log any warnings
+    try {
+        const cfgWarnings = validateEnv(logger);
+        if (cfgWarnings && cfgWarnings.length) logger.warn('Environment validation warnings:', cfgWarnings);
+    } catch (e) {
+        logger.warn('Environment validation failed:', e?.message || e);
+    }
+
     connectWhatsApp();
+});
+
+// Graceful shutdown to persist session and close resources
+async function gracefulShutdown(signal) {
+    try {
+        logger.info(`Received ${signal} - starting graceful shutdown`);
+
+        // Mark disconnecting
+        connectionState = 'disconnecting';
+
+        // Persist credentials if available
+        if (typeof globalSaveCreds === 'function') {
+            try {
+                await globalSaveCreds();
+                logger.info('Saved credentials successfully');
+            } catch (e) {
+                logger.warn('Failed to save credentials during shutdown:', e?.message || e);
+            }
+        }
+
+        // Create session backup
+        try { createSessionBackup(); } catch (e) { logger.warn('Session backup during shutdown failed', e?.message || e); }
+
+        // Close WhatsApp socket if present
+        if (sock) {
+            try {
+                if (typeof sock.logout === 'function') {
+                    await sock.logout();
+                } else if (typeof sock.end === 'function') {
+                    sock.end();
+                }
+                logger.info('WhatsApp socket closed');
+            } catch (e) {
+                logger.warn('Error while closing WhatsApp socket:', e?.message || e);
+            }
+        }
+
+        // Close HTTP server
+        if (server && typeof server.close === 'function') {
+            await new Promise(resolve => server.close(() => resolve()));
+            logger.info('HTTP server closed');
+        }
+
+    } catch (err) {
+        logger.error('Error during graceful shutdown:', err?.message || err);
+    } finally {
+        process.exit(0);
+    }
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('uncaughtException', (err) => {
+    logger.error('Uncaught exception:', err);
+    gracefulShutdown('uncaughtException');
 });

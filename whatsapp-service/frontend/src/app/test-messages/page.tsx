@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import Link from 'next/link';
+import { api, APIError } from '../../lib/api/api';
 import {
   ArrowLeft,
   Search,
@@ -53,56 +54,25 @@ function TestMessagesInner() {
     setMessages([]);
 
     try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/whatsapp/messages/${id}?limit=20`
-        );
+      // Use the centralized API helper so headers (Bearer or x-api-key) are added automatically
+      const data = await api.whatsapp.getMessages(id, 20);
 
-        // Try to read body even on non-OK so we can surface server error details
-        let data: any = null;
-        try {
-          const text = await response.text();
-          try {
-            data = text ? JSON.parse(text) : null;
-          } catch (e) {
-            // response was not JSON
-            data = { text };
-          }
-        } catch (e) {
-          // ignore body parse errors
-          data = null;
-        }
+      const msgs = (data && (data.messages || data)) || [];
+      setMessages(msgs);
+      setGroupName((data && (data.group_name || data.groupName)) || 'Unknown Group');
 
-        if (!response.ok) {
-          const serverMsg = data?.error || data?.detail || data?.message || data?.text || response.statusText;
-          if (response.status >= 500) {
-            // Server-side error — show a friendly message but include server text if available
-            setError(`Server error (${response.status}). ${serverMsg || 'Please try again later.'}`);
-          } else {
-            setError(`Error ${response.status}: ${serverMsg || response.statusText}`);
-          }
-          console.error('Fetch error:', { status: response.status, body: data });
-          return;
-        }
-
-        // Successful response — if we parsed JSON into `data`, use it; otherwise try parse again
-        if (!data) {
-          try {
-            data = await response.json();
-          } catch (e) {
-            data = null;
-          }
-        }
-
-        const msgs = (data && (data.messages || data)) || [];
-        setMessages(msgs);
-        setGroupName((data && (data.group_name || data.groupName)) || 'Unknown Group');
-
-        if (!msgs || msgs.length === 0) {
-          setError('No messages found in this group');
-        }
+      if (!msgs || msgs.length === 0) {
+        setError('No messages found in this group');
+      }
     } catch (err: any) {
-      setError(`Failed to fetch messages: ${err.message}`);
-      console.error('Fetch error:', err);
+      if (err instanceof APIError) {
+        // Surface server-provided error details when available
+        setError(`Error ${err.status || ''} ${err.message}`.trim());
+        console.error('API error:', err.data || err.message);
+      } else {
+        setError(`Failed to fetch messages: ${err?.message || String(err)}`);
+        console.error('Fetch error:', err);
+      }
     } finally {
       setLoading(false);
     }

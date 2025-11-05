@@ -1197,21 +1197,74 @@ app.get('/api/status', (req: Request, res: Response) => { res.json({ success:tru
 
 app.get('/api/session-info', (req: Request, res: Response) => { try { const sessionStats = getSessionStats(); res.json({ success:true, session: { ...sessionStats, restored: sessionRestored, backup: { available: !!sessionBackup, size_kb: sessionBackup ? Math.round(sessionBackup.length / 1024) : 0, disk_file_exists: fs.existsSync(BACKUP_FILE) } }, connection: { status: connectionState, phone: connectedPhone, attempts: connectionAttempts, max_attempts: MAX_RECONNECT_ATTEMPTS }, auth: { authorized_phones: authorizedPhones.size, active_sessions: sessionTokens.size, pending_otps: otpStorage.size }, server: { uptime_seconds: Math.floor(process.uptime()), memory_usage_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024), node_version: process.version }, deployment: { platform: 'Platform-Independent', storage_type: 'Ephemeral with backup', backup_strategy: 'In-memory + disk fallback', portable: true } }); } catch (error) { logger.error('Session info error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });
 
-app.get('/api/groups', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => { try { if (!sock || connectionState !== 'connected') return res.status(503).json({ success:false, error:'WhatsApp not connected', status: connectionState, hint: connectionState === 'qr_ready' ? 'Admin needs to scan QR code' : 'Service is connecting...' }); const chats = await sock.groupFetchAllParticipating(); const groups = Object.values(chats).map((g: any) => ({ id: g.id, name: g.subject, participants: g.participants?.length || 0 })); logger.info(`📱 ${req.user?.phone} fetched ${groups.length} groups`); res.json({ success:true, count: groups.length, groups }); } catch (error) { logger.error('Groups endpoint error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });
+async function handleGetGroups(req: Request & { user?: any }, res: Response) {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success:false, error:'WhatsApp not connected', status: connectionState, hint: connectionState === 'qr_ready' ? 'Admin needs to scan QR code' : 'Service is connecting...' });
+    }
+    const chats = await sock.groupFetchAllParticipating();
+    const groups = Object.values(chats).map((g: any) => ({ id: g.id, name: g.subject, participants: g.participants?.length || 0 }));
+    logger.info(`📱 ${req.user?.phone} fetched ${groups.length} groups`);
+    res.json({ success:true, count: groups.length, groups });
+  } catch (error) {
+    logger.error('Groups endpoint error:', error);
+    res.status(500).json({ success:false, error: (error as Error).message });
+  }
+}
 
-app.get('/api/messages/:groupId', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => { try { if (!sock || connectionState !== 'connected') return res.status(503).json({ success:false, error:'WhatsApp not connected', status: connectionState }); const { groupId } = req.params; const limit = parseInt(req.query.limit as string) || 50; let msgs; try { msgs = await fetchMessagesFromWAWrapper(groupId, limit); } catch (e:any) { logger.error('WhatsApp service error:', e.message); return res.status(500).json({ success:false, error: `WhatsApp service error: ${JSON.stringify({ success:false, error: e.message })}` }); } const formatted = msgs.map((m:any)=>{ const ts = extractMessageTimestamp(m) || Math.floor(Date.now()/1000); const content = extractMessageContent(m); return { id: m.key?.id, from_user: getPreferredIdFromKey(m.key), content, timestamp: ts, date: ts ? new Date(ts*1000).toLocaleString() : new Date().toLocaleString() }; }).filter((m:any)=>m.content); const groupInfo = await sock.groupMetadata(groupId); try { const ttl = Number(process.env.GROUP_METADATA_TTL_MS || 5*60*1000); const now = Date.now(); try { const { createClient } = await import('redis'); /* noop import check */ } catch {} try { // attempt to cache in redis if present on socket context
-      if ((sock as any)?.redisClient && (sock as any)?.groupCacheIsRedis) { await (sock as any).redisClient.set(`group:${groupId}`, JSON.stringify(groupInfo), { EX: Math.max(1, Math.floor(ttl/1000)) }); }
-    } catch {}
-    try { // also cache in a global map to serve as in-memory cache mirror
-      const sym = Symbol.for('wam.groupCache');
-      const local = (global as any)[sym] || new Map<string, { data:any, expires:number }>();
-      local.set(groupId, { data: groupInfo, expires: now + ttl });
-      (global as any)[sym] = local;
-    } catch {}
-  } catch (err) { logger.warn('Failed to cache group metadata:', err && (err as any).message ? (err as any).message : err); } logger.info(`📱 ${req.user?.phone} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`); res.json({ success:true, count: formatted.length, group_name: groupInfo.subject, messages: formatted }); } catch (error) { logger.error('Messages endpoint error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });
+app.get('/api/groups', requireAuthOrAPIKey, handleGetGroups as any);
+// Clean alias for clients expecting /api/whatsapp/groups
+app.get('/api/whatsapp/groups', requireAuthOrAPIKey, handleGetGroups as any);
 
-app.get('/api/whatsapp/messages/:groupId', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => { // alias -> reuse same logic
-  return app._router.handle(req, res, () => {});
+async function handleGetMessages(req: Request & { user?: any }, res: Response) {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success:false, error:'WhatsApp not connected', status: connectionState });
+    }
+    const { groupId } = req.params as { groupId: string };
+    const limit = parseInt(req.query.limit as string) || 50;
+    let msgs;
+    try {
+      msgs = await fetchMessagesFromWAWrapper(groupId, limit);
+    } catch (e:any) {
+      logger.error('WhatsApp service error:', e.message);
+      return res.status(500).json({ success:false, error: `WhatsApp service error: ${JSON.stringify({ success:false, error: e.message })}` });
+    }
+    const formatted = msgs
+      .map((m:any)=>{ const ts = extractMessageTimestamp(m) || Math.floor(Date.now()/1000); const content = extractMessageContent(m); return { id: m.key?.id, from_user: getPreferredIdFromKey(m.key), content, timestamp: ts, date: ts ? new Date(ts*1000).toLocaleString() : new Date().toLocaleString() }; })
+      .filter((m:any)=>m.content);
+    const groupInfo = await sock.groupMetadata(groupId);
+    // best-effort cache populate (mirrors cachedGroupMetadata logic)
+    try {
+      const ttl = Number(process.env.GROUP_METADATA_TTL_MS || 5*60*1000);
+      const now = Date.now();
+      try {
+        if ((sock as any)?.redisClient && (sock as any)?.groupCacheIsRedis) {
+          await (sock as any).redisClient.set(`group:${groupId}`, JSON.stringify(groupInfo), { EX: Math.max(1, Math.floor(ttl/1000)) });
+        }
+      } catch {}
+      try {
+        const sym = Symbol.for('wam.groupCache');
+        const local = (global as any)[sym] || new Map<string, { data:any, expires:number }>();
+        local.set(groupId, { data: groupInfo, expires: now + ttl });
+        (global as any)[sym] = local;
+      } catch {}
+    } catch (err) { logger.warn('Failed to cache group metadata:', err && (err as any).message ? (err as any).message : err); }
+    logger.info(`📱 ${req.user?.phone} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`);
+    res.json({ success:true, count: formatted.length, group_name: groupInfo.subject, messages: formatted });
+  } catch (error) {
+    logger.error('Messages endpoint error:', error);
+    res.status(500).json({ success:false, error: (error as Error).message });
+  }
+}
+
+app.get('/api/messages/:groupId', requireAuthOrAPIKey, handleGetMessages as any);
+// Clean alias for clients expecting /api/whatsapp/messages/:groupId
+app.get('/api/whatsapp/messages/:groupId', requireAuthOrAPIKey, handleGetMessages as any);
+
+// Expose status under /api/whatsapp/status as an alias to /api/status
+app.get('/api/whatsapp/status', (req: Request, res: Response) => {
+  res.json({ success:true, status: connectionState, phone: connectedPhone, timestamp: new Date().toISOString(), session_restored: sessionRestored, backup_available: !!sessionBackup, connection_attempts: connectionAttempts });
 });
 
 app.post('/api/send', requireAuth, async (req: Request & { user?: any }, res: Response) => { try { if (!sock || connectionState !== 'connected') return res.status(503).json({ success:false, error:'WhatsApp not connected' }); const { groupId, message } = req.body as { groupId?: string, message?: string }; if (!groupId || !message) return res.status(400).json({ success:false, error:'groupId and message required' }); await sock.sendMessage(groupId, { text: message }); logger.info(`✉️  ${req.user?.phone} sent message to ${groupId}`); res.json({ success:true, message:'Sent successfully' }); } catch (error) { logger.error('Send endpoint error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });

@@ -4,7 +4,9 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
-  "env": {
-    "NODE_ENV": "production"
+  "functions": {
+    "**": {
+      "runtime": "nodejs22.x"
+    }
   }
 }

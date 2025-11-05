@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## WhatsApp Academic Manager — Frontend (Next.js on Vercel)
 
-## Getting Started
+This is the Next.js frontend for WhatsApp Academic Manager. It’s optimized for deployment on Vercel with sensible defaults and environment-based API targets.
 
-First, run the development server:
+### Requirements
+
+- Node.js 22.x or 24.x locally (this repo ships an `.nvmrc` with `24`)
+- Next.js 16, React 19
+- Tailwind CSS v4
+
+### Environment variables
+
+Set these in Vercel → Project Settings → Environment Variables:
+
+- `NEXT_PUBLIC_API_URL` — WhatsApp service base URL (e.g., your Railway service)
+- `NEXT_PUBLIC_BACKEND_URL` — Python backend base URL (if used)
+- Optional: `NEXT_PUBLIC_APP_NAME`, `NEXT_PUBLIC_APP_VERSION`
+
+You can also set them locally in `.env.local` (already created). Do not commit secrets.
+
+### Scripts
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev    # local development
+npm run build  # production build
+npm start      # start production server (SSR)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Vercel specifics
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Build output is handled by Next on Vercel; no need to change outputDirectory.
+- Runtime pinned to Node.js 22.x for Functions via `vercel.json`.
+- ESLint won’t fail the build on Vercel (configured in `next.config.ts`).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### API targets (frontend -> services)
 
-## Learn More
+All API calls read from env:
 
-To learn more about Next.js, take a look at the following resources:
+- WhatsApp service: `process.env.NEXT_PUBLIC_API_URL`
+- Python backend: `process.env.NEXT_PUBLIC_BACKEND_URL`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+See `src/lib/api/api.ts` for details.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+If you prefer to avoid CORS and proxy through Next.js, you can enable the commented `rewrites()` in `next.config.ts` and switch the frontend to call relative `/api/...` paths.
 
-## Deploy on Vercel
+### Local development
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Configure `.env.local` with your remote services or local URLs
+2. `npm install`
+3. `npm run dev` and open http://localhost:3000
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Troubleshooting
+
+- Build errors due to ESLint: build won’t fail, but you should still fix lint issues locally.
+- API 4xx/5xx: verify the service URLs and that the upstream services are reachable from Vercel (use the “Health” endpoints in each service).

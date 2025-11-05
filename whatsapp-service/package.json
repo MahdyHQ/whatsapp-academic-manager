@@ -34,6 +34,7 @@
     "npm": ">=11.6.2"
   },
   "dependencies": {
+    "@cacheable/node-cache": "^1.7.4",
     "@whiskeysockets/baileys": "7.0.0-rc.6",
     "axios": "^1.13.1",
     "body-parser": "^2.2.0",

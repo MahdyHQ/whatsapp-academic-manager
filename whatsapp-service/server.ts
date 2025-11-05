@@ -1,4 +1,12 @@
-import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
+import makeWASocket, {
+  DisconnectReason,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  Browsers,
+  makeCacheableSignalKeyStore,
+  type CacheStore
+} from '@whiskeysockets/baileys';
+import NodeCache from '@cacheable/node-cache';
 import express, { Request, Response, NextFunction } from 'express';
 import QRCode from 'qrcode';
 import pino from 'pino';
@@ -27,6 +35,8 @@ dotenv.config();
 const app = express();
 const PORT = CFG_PORT || parseInt(process.env.PORT || '3000', 10);
 const logger: any = pino({ level: process.env.LOG_LEVEL || 'info' });
+const BAILEYS_LOG_LEVEL = process.env.BAILEYS_LOG_LEVEL || 'info';
+const BAILEYS_LOGGER: any = pino({ level: BAILEYS_LOG_LEVEL });
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -45,6 +55,23 @@ let connectionAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = Number(process.env.MAX_RECONNECT_ATTEMPTS || CFG_MAX_RECONNECT_ATTEMPTS || 5);
 const AUTH_DIR = process.env.AUTH_DIR || CFG_AUTH_DIR || path.join(__dirname, '..', 'auth_info');
 const BACKUP_FILE = path.join(__dirname, '..', 'session-backup.json');
+
+// Baileys recommended caches & store
+// 1) Retry counter cache (improves retry behaviour when sending)
+const msgRetryCounterCache = new NodeCache() as unknown as CacheStore;
+
+// 2) Lightweight message store to support getMessage (poll decrypt/retries)
+type MsgMap = Map<string, any>;
+const messageStore = new Map<string, MsgMap>(); // remoteJid -> (id -> message)
+function rememberMessage(m: any) {
+  try {
+    const jid = m?.key?.remoteJid;
+    const id = m?.key?.id;
+    if (!jid || !id) return;
+    if (!messageStore.has(jid)) messageStore.set(jid, new Map());
+    messageStore.get(jid)!.set(id, m);
+  } catch {}
+}
 
 // In-memory auth/session stores
 const sessionTokens = new Map<string, any>();
@@ -238,15 +265,15 @@ async function connectWhatsApp(){
     const { version } = await fetchLatestBaileysVersion();
     logger.info(`📦 Using Baileys version: ${version.join('.')}`);
 
-    const BAILEYS_LOG_LEVEL = process.env.BAILEYS_LOG_LEVEL || 'info';
-  const BAILEYS_LOGGER: any = pino({ level: BAILEYS_LOG_LEVEL });
     const SYNC_FULL_HISTORY = process.env.SYNC_FULL_HISTORY === 'true';
     const MARK_ONLINE_ON_CONNECT = process.env.MARK_ONLINE_ON_CONNECT === 'true';
 
     // Group metadata cache: prefer Redis when explicitly configured; otherwise use in-memory to avoid blocking startup
     let redisClient: any = null;
     let groupCacheIsRedis = false;
-    const groupCache = new Map<string, any>();
+    const groupCache = new Map<string, { data: any, expires: number }>();
+    const GROUP_METADATA_TTL_MS = Number(process.env.GROUP_METADATA_TTL_MS || 5 * 60 * 1000);
+    const pendingGroupMeta = new Map<string, Promise<any>>();
 
     async function initGroupCache(){
       const hasExplicitRedis = !!(process.env.REDIS_URL || process.env.REDIS_HOST || process.env.ENABLE_REDIS === 'true');
@@ -285,16 +312,68 @@ async function connectWhatsApp(){
       version,
       logger: BAILEYS_LOGGER,
       printQRInTerminal: true,
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, BAILEYS_LOGGER)
+      },
       // Use a well-known browser signature to improve pairing reliability
       browser: Browsers.macOS('Chrome'),
       connectTimeoutMs:60000,
       defaultQueryTimeoutMs:60000,
       keepAliveIntervalMs:30000,
-  getMessage: async (key: any)=>{ try { if (sock?.store && sock.store.messages && key?.remoteJid) { const chat: any = sock.store.messages[key.remoteJid] || {}; const list: any[] = Object.values(chat); const found: any = list.find((m:any)=>m && m.key && m.key.id === key.id); if (found && found.message) return found.message; } return { conversation: 'Message not available' }; } catch (err: any) { BAILEYS_LOGGER.warn('getMessage fallback triggered', (err && (err as any).message) ? (err as any).message : err); return { conversation: 'Message not available' }; } },
+      // cache for retry counters (helps delivery reliability)
+      msgRetryCounterCache,
+      // message retriever for retries & poll vote decryption
+      getMessage: async (key: any) => {
+        try {
+          const jid = key?.remoteJid;
+          const id = key?.id;
+          if (jid && id) {
+            const chat = messageStore.get(jid);
+            const m = chat?.get(id);
+            if (m?.message) return m.message;
+          }
+        } catch (err: any) {
+          BAILEYS_LOGGER.warn('getMessage() error', err?.message || err);
+        }
+        return { conversation: 'Message not available' };
+      },
       syncFullHistory: SYNC_FULL_HISTORY,
       markOnlineOnConnect: MARK_ONLINE_ON_CONNECT,
-  cachedGroupMetadata: async (jid: string) => { try { if (groupCacheIsRedis && redisClient) { const raw = await redisClient.get(`group:${jid}`); if (raw) return JSON.parse(raw); return null; } return groupCache.get(jid) || null; } catch (err: any) { BAILEYS_LOGGER.warn('cachedGroupMetadata error', (err && (err as any).message) ? (err as any).message : err); return null; } }
+      // robust cached group metadata with TTL and Redis fallback
+      cachedGroupMetadata: async (jid: string) => {
+        try {
+          const now = Date.now();
+          const redisKey = `group:${jid}`;
+          if (groupCacheIsRedis && redisClient) {
+            const raw = await redisClient.get(redisKey);
+            if (raw) return JSON.parse(raw);
+          } else {
+            const hit = groupCache.get(jid);
+            if (hit && hit.expires > now) return hit.data;
+          }
+
+          if (pendingGroupMeta.has(jid)) return await pendingGroupMeta.get(jid)!;
+
+          const p = (async () => {
+            const fresh = await (sock?.groupMetadata ? sock.groupMetadata(jid) : null);
+            if (fresh) {
+              if (groupCacheIsRedis && redisClient) {
+                await redisClient.set(redisKey, JSON.stringify(fresh), { EX: Math.max(1, Math.floor(GROUP_METADATA_TTL_MS / 1000)) });
+              } else {
+                groupCache.set(jid, { data: fresh, expires: now + GROUP_METADATA_TTL_MS });
+              }
+            }
+            return fresh;
+          })();
+
+          pendingGroupMeta.set(jid, p);
+          try { return await p; } finally { pendingGroupMeta.delete(jid); }
+        } catch (err: any) {
+          BAILEYS_LOGGER.warn('cachedGroupMetadata error', err?.message || err);
+          return null;
+        }
+      }
     });
 
     // Migration check for LID/device-index
@@ -311,6 +390,11 @@ async function connectWhatsApp(){
         } catch (err) { logger.error('sock.fetchMessagesFromWA error:', err); throw err; }
       };
     }
+
+    // remember messages for getMessage support
+    sock.ev.on('messages.upsert', (ev: any) => {
+      try { for (const m of ev?.messages || []) rememberMessage(m); } catch {}
+    });
 
     sock.ev.on('connection.update', async (update:any)=>{ const { connection, lastDisconnect, qr } = update; if (qr) { qrCodeData = qr; logger.info('📱 QR Code generated - Available at /qr endpoint'); connectionState = 'qr_ready'; } if (connection === 'close') { const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut; const statusCode = lastDisconnect?.error?.output?.statusCode; const errorMessage = lastDisconnect?.error?.message; logger.warn('⚠️  Connection closed'); logger.warn(`   Status Code: ${statusCode}`); logger.warn(`   Error: ${errorMessage || 'Unknown'}`); logger.warn(`   Should reconnect: ${shouldReconnect}`); connectionState = 'disconnected'; connectedPhone = null; if (statusCode === DisconnectReason.loggedOut) { logger.error('🚫 Logged out from device - clearing all session data'); qrCodeData = null; sessionRestored = false; if (fs.existsSync(AUTH_DIR)) { logger.info('🗑️  Clearing auth directory...'); fs.rmSync(AUTH_DIR, { recursive: true, force: true }); ensureAuthDir(); } clearSessionBackup(); connectionAttempts = 0; } if (shouldReconnect && connectionAttempts < MAX_RECONNECT_ATTEMPTS) { const delay = Math.min(3000 * connectionAttempts, 30000); logger.info(`🔄 Reconnecting in ${delay/1000} seconds...`); setTimeout(()=>connectWhatsApp(), delay); } else if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) { logger.error('❌ Max reconnection attempts reached'); logger.error('   💡 Visit /qr to scan QR code again'); } else { logger.error('🚫 Not reconnecting - scan QR code at /qr'); } } else if (connection === 'open') { logger.info('✅ WhatsApp Connected Successfully!'); connectionState = 'connected'; connectedPhone = sock.user?.id?.split(':')[0]; qrCodeData = null; connectionAttempts = 0; setTimeout(()=>createSessionBackup(), 2000); if (sessionRestored) { logger.info('💾 Session restored from backup'); } else { logger.info('🆕 New session created'); } logger.info(`📱 Connected as: +${connectedPhone}`); } else if (connection === 'connecting') { logger.info('🔗 Establishing connection...'); } });
 
@@ -1115,7 +1199,16 @@ app.get('/api/session-info', (req: Request, res: Response) => { try { const sess
 
 app.get('/api/groups', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => { try { if (!sock || connectionState !== 'connected') return res.status(503).json({ success:false, error:'WhatsApp not connected', status: connectionState, hint: connectionState === 'qr_ready' ? 'Admin needs to scan QR code' : 'Service is connecting...' }); const chats = await sock.groupFetchAllParticipating(); const groups = Object.values(chats).map((g: any) => ({ id: g.id, name: g.subject, participants: g.participants?.length || 0 })); logger.info(`📱 ${req.user?.phone} fetched ${groups.length} groups`); res.json({ success:true, count: groups.length, groups }); } catch (error) { logger.error('Groups endpoint error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });
 
-app.get('/api/messages/:groupId', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => { try { if (!sock || connectionState !== 'connected') return res.status(503).json({ success:false, error:'WhatsApp not connected', status: connectionState }); const { groupId } = req.params; const limit = parseInt(req.query.limit as string) || 50; let msgs; try { msgs = await fetchMessagesFromWAWrapper(groupId, limit); } catch (e:any) { logger.error('WhatsApp service error:', e.message); return res.status(500).json({ success:false, error: `WhatsApp service error: ${JSON.stringify({ success:false, error: e.message })}` }); } const formatted = msgs.map((m:any)=>{ const ts = extractMessageTimestamp(m) || Math.floor(Date.now()/1000); const content = extractMessageContent(m); return { id: m.key?.id, from_user: getPreferredIdFromKey(m.key), content, timestamp: ts, date: ts ? new Date(ts*1000).toLocaleString() : new Date().toLocaleString() }; }).filter((m:any)=>m.content); const groupInfo = await sock.groupMetadata(groupId); try { /* cache */ } catch (err) { logger.warn('Failed to cache group metadata:', err && (err as any).message ? (err as any).message : err); } logger.info(`📱 ${req.user?.phone} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`); res.json({ success:true, count: formatted.length, group_name: groupInfo.subject, messages: formatted }); } catch (error) { logger.error('Messages endpoint error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });
+app.get('/api/messages/:groupId', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => { try { if (!sock || connectionState !== 'connected') return res.status(503).json({ success:false, error:'WhatsApp not connected', status: connectionState }); const { groupId } = req.params; const limit = parseInt(req.query.limit as string) || 50; let msgs; try { msgs = await fetchMessagesFromWAWrapper(groupId, limit); } catch (e:any) { logger.error('WhatsApp service error:', e.message); return res.status(500).json({ success:false, error: `WhatsApp service error: ${JSON.stringify({ success:false, error: e.message })}` }); } const formatted = msgs.map((m:any)=>{ const ts = extractMessageTimestamp(m) || Math.floor(Date.now()/1000); const content = extractMessageContent(m); return { id: m.key?.id, from_user: getPreferredIdFromKey(m.key), content, timestamp: ts, date: ts ? new Date(ts*1000).toLocaleString() : new Date().toLocaleString() }; }).filter((m:any)=>m.content); const groupInfo = await sock.groupMetadata(groupId); try { const ttl = Number(process.env.GROUP_METADATA_TTL_MS || 5*60*1000); const now = Date.now(); try { const { createClient } = await import('redis'); /* noop import check */ } catch {} try { // attempt to cache in redis if present on socket context
+      if ((sock as any)?.redisClient && (sock as any)?.groupCacheIsRedis) { await (sock as any).redisClient.set(`group:${groupId}`, JSON.stringify(groupInfo), { EX: Math.max(1, Math.floor(ttl/1000)) }); }
+    } catch {}
+    try { // also cache in a global map to serve as in-memory cache mirror
+      const sym = Symbol.for('wam.groupCache');
+      const local = (global as any)[sym] || new Map<string, { data:any, expires:number }>();
+      local.set(groupId, { data: groupInfo, expires: now + ttl });
+      (global as any)[sym] = local;
+    } catch {}
+  } catch (err) { logger.warn('Failed to cache group metadata:', err && (err as any).message ? (err as any).message : err); } logger.info(`📱 ${req.user?.phone} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`); res.json({ success:true, count: formatted.length, group_name: groupInfo.subject, messages: formatted }); } catch (error) { logger.error('Messages endpoint error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });
 
 app.get('/api/whatsapp/messages/:groupId', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => { // alias -> reuse same logic
   return app._router.handle(req, res, () => {});

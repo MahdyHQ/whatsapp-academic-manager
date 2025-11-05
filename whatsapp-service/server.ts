@@ -408,10 +408,8 @@ setInterval(() => { const now = Date.now(); let cleanedOTPs = 0; let cleanedSess
 // Standard routes + QR + status + session-info + groups/messages/send
 app.get('/', (req: Request, res: Response) => { const sessionStats = getSessionStats(); res.json({ service: 'WhatsApp Academic Manager API', status: connectionState, phone: connectedPhone, version: '2.4.0 - WhatsApp Themed + Complete Auth', author: 'MahdyHQ', timestamp: new Date().toISOString(), session: { ...sessionStats, restored: sessionRestored, backup_available: !!sessionBackup, backup_size_kb: sessionBackup ? Math.round(sessionBackup.length / 1024) : 0 }, connection: { attempts: connectionAttempts, max_attempts: MAX_RECONNECT_ATTEMPTS }, auth: { authorized_phones_count: authorizedPhones.size, active_sessions: sessionTokens.size, pending_otps: otpStorage.size }, railway: { storage: '/tmp/auth_info (ephemeral)', backup: 'In-memory + disk fallback', volumes_required: false, free_tier_compatible: true } }); });
 
-// Alias uppercase path to avoid case-related surprises from shared links
-app.get('/QR', (req: Request, res: Response) => res.redirect(302, '/qr'));
-
-app.get('/qr', async (req: Request, res: Response) => {
+// Handle both /qr and /QR without redirect to avoid potential redirect loops from upstream caches/CDNs
+app.get(['/qr', '/QR'], async (req: Request, res: Response) => {
   try {
   // prevent caching of QR/initializing pages in browsers or proxies
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -713,7 +711,6 @@ app.get('/qr', async (req: Request, res: Response) => {
             <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <meta http-equiv="refresh" content="3">
               <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
               <link rel="icon" type="image/svg+xml" href="/favicon.svg">
               <link rel="shortcut icon" href="/favicon.ico">
@@ -775,8 +772,24 @@ app.get('/qr', async (req: Request, res: Response) => {
             <div class="spinner"></div>
             <h2>Initializing WhatsApp</h2>
             <p>Checking for saved session...</p>
-            <p style="margin-top: 16px; font-size: 12px; opacity: 0.7;">This page will auto-refresh</p>
+            <p style="margin-top: 16px; font-size: 12px; opacity: 0.7;">Waiting for QR code to be generated…</p>
           </div>
+          <script>
+            // Poll the backend for QR availability or connection every 3 seconds without using HTTP redirects
+            const check = async () => {
+              try {
+                const r = await fetch('/api/qr', { cache: 'no-store' });
+                if (r.ok) {
+                  const data = await r.json();
+                  if (data.connected || data.qr) {
+                    // Reload this page to show connected or QR UI
+                    window.location.reload();
+                  }
+                }
+              } catch (e) {}
+            };
+            setInterval(check, 3000);
+          </script>
         </body>
         </html>
       `);

@@ -8,9 +8,8 @@
   # Build command from package.json
   command = "npm run build"
   
-  # Next.js builds to .next folder - publish the entire frontend directory
-  # Netlify needs access to .next, public, and other Next.js files
-  publish = "."
+  # Don't set publish - let @netlify/plugin-nextjs handle it automatically
+  # The plugin will use the correct Next.js output directory
 
 # Environment variables (configure these in Netlify UI for security)
 [build.environment]

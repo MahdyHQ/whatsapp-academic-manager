@@ -8,8 +8,9 @@
   # Build command from package.json
   command = "npm run build"
   
-  # Don't set publish - let @netlify/plugin-nextjs handle it automatically
-  # The plugin will use the correct Next.js output directory
+  # Publish directory must be different from base for @netlify/plugin-nextjs
+  # The plugin outputs to .netlify by default
+  publish = "whatsapp-service/frontend/.netlify"
 
 # Environment variables (configure these in Netlify UI for security)
 [build.environment]

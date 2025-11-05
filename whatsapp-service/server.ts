@@ -408,8 +408,15 @@ setInterval(() => { const now = Date.now(); let cleanedOTPs = 0; let cleanedSess
 // Standard routes + QR + status + session-info + groups/messages/send
 app.get('/', (req: Request, res: Response) => { const sessionStats = getSessionStats(); res.json({ service: 'WhatsApp Academic Manager API', status: connectionState, phone: connectedPhone, version: '2.4.0 - WhatsApp Themed + Complete Auth', author: 'MahdyHQ', timestamp: new Date().toISOString(), session: { ...sessionStats, restored: sessionRestored, backup_available: !!sessionBackup, backup_size_kb: sessionBackup ? Math.round(sessionBackup.length / 1024) : 0 }, connection: { attempts: connectionAttempts, max_attempts: MAX_RECONNECT_ATTEMPTS }, auth: { authorized_phones_count: authorizedPhones.size, active_sessions: sessionTokens.size, pending_otps: otpStorage.size }, railway: { storage: '/tmp/auth_info (ephemeral)', backup: 'In-memory + disk fallback', volumes_required: false, free_tier_compatible: true } }); });
 
+// Alias uppercase path to avoid case-related surprises from shared links
+app.get('/QR', (req: Request, res: Response) => res.redirect(302, '/qr'));
+
 app.get('/qr', async (req: Request, res: Response) => {
   try {
+  // prevent caching of QR/initializing pages in browsers or proxies
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   const whatsappColors = {
     primary: '#25D366',      // WhatsApp Green
     secondary: '#128C7E',    // Dark Green

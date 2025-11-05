@@ -15,51 +15,53 @@ import {
   InboxIcon,
   Search,
 } from 'lucide-react';
-
+import { api } from '@/lib/api';
 interface Message {
   id: string;
   from_user: string;
   content: string;
-  timestamp: number;
-  date: string;
+  date?: string;
 }
 
 export default function MessagesPage() {
+  // Groups data from hook
   const { data: groupsData, isLoading: groupsLoading } = useWhatsAppGroups();
-  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
+  const groups: any[] = (groupsData && (groupsData.groups || groupsData)) || [];
+
+  // Local state for messages and UI
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [groupName, setGroupName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState<string>('');
 
-  const groups = groupsData?.groups || [];
-
-  const fetchMessages = async (groupId: string) => {
+  const fetchMessages = async (groupId: string | null) => {
     if (!groupId) return;
 
-    setLoading(true);
-    setError('');
-    setMessages([]);
     setSelectedGroupId(groupId);
+    setLoading(true);
+    setError(null);
+    setMessages([]);
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/whatsapp/messages/${groupId}?limit=50`
-      );
+      // Use centralized API helper which handles base URLs and auth
+      const data: any = await api.whatsapp.getMessages(groupId, 50);
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`);
+      // Normalize possible response shapes
+      const msgs: Message[] = data.messages || data || [];
+      setMessages(msgs);
+      setGroupName(data.group_name || data.group_name || 'Unknown Group');
+
+      if (data && data.success === false) {
+        throw new Error(data.error || 'Failed to fetch messages');
       }
 
-      const data = await response.json();
-      setMessages(data.messages || []);
-      setGroupName(data.group_name || 'Unknown Group');
-
-      if (data.messages.length === 0) {
+      if (msgs.length === 0) {
         setError('No messages found in this group');
       }
     } catch (err: any) {
-      setError(`Error: ${err.message}`);
+      const message = err?.data?.error || err?.message || String(err);
+      setError(`Error: ${message}`);
       console.error('Fetch error:', err);
     } finally {
       setLoading(false);
@@ -67,7 +69,7 @@ export default function MessagesPage() {
   };
 
   const formatPhone = (phone: string) => {
-    const match = phone.match(/(\d+)/);
+    const match = phone?.toString().match(/(\d+)/);
     return match ? `+${match[1]}` : phone;
   };
 
@@ -81,9 +83,7 @@ export default function MessagesPage() {
               <MessageSquare className="w-10 h-10 text-blue-600" />
               Messages Display
             </h1>
-            <p className="text-gray-600 mt-2">
-              Select a group to view messages
-            </p>
+            <p className="text-gray-600 mt-2">Select a group to view messages</p>
           </div>
           <Link href="/">
             <Button variant="outline">
@@ -112,7 +112,7 @@ export default function MessagesPage() {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                    {groups.slice(0, 20).map((group : any) => (
+                    {groups.slice(0, 20).map((group: any) => (
                       <button
                         key={group.id}
                         onClick={() => fetchMessages(group.id)}
@@ -122,9 +122,7 @@ export default function MessagesPage() {
                             : 'hover:bg-gray-50 border-gray-200'
                         }`}
                       >
-                        <div className="font-medium text-sm line-clamp-1">
-                          {group.name}
-                        </div>
+                        <div className="font-medium text-sm line-clamp-1">{group.name}</div>
                         <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
                           <Users className="w-3 h-3" />
                           {group.participants} members
@@ -154,12 +152,8 @@ export default function MessagesPage() {
               <Card className="h-full flex items-center justify-center min-h-[400px]">
                 <CardContent className="text-center">
                   <MessageSquare className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-xl font-semibold text-gray-600 mb-2">
-                    No Group Selected
-                  </p>
-                  <p className="text-gray-500">
-                    Select a group from the sidebar to view messages
-                  </p>
+                  <p className="text-xl font-semibold text-gray-600 mb-2">No Group Selected</p>
+                  <p className="text-gray-500">Select a group from the sidebar to view messages</p>
                 </CardContent>
               </Card>
             ) : loading ? (
@@ -175,11 +169,7 @@ export default function MessagesPage() {
               <Card className="border-red-200 bg-red-50">
                 <CardContent className="py-12 text-center">
                   <p className="text-red-600">{error}</p>
-                  <Button
-                    onClick={() => fetchMessages(selectedGroupId)}
-                    className="mt-4"
-                    variant="outline"
-                  >
+                  <Button onClick={() => fetchMessages(selectedGroupId)} className="mt-4" variant="outline">
                     Retry
                   </Button>
                 </CardContent>
@@ -193,37 +183,24 @@ export default function MessagesPage() {
                         <MessageSquare className="w-6 h-6 text-blue-600" />
                         {groupName}
                       </CardTitle>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {messages.length} messages
-                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">{messages.length} messages</p>
                     </div>
-                    <Badge variant="secondary" className="text-lg px-4 py-2">
-                      {messages.length}
-                    </Badge>
+                    <Badge variant="secondary" className="text-lg px-4 py-2">{messages.length}</Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3 max-h-[600px] overflow-y-auto">
                     {messages.map((message, index) => (
-                      <Card
-                        key={message.id}
-                        className="border-l-4 border-blue-500 hover:shadow-md transition-shadow"
-                      >
+                      <Card key={message.id} className="border-l-4 border-blue-500 hover:shadow-md transition-shadow">
                         <CardContent className="pt-4">
                           <div className="flex items-start justify-between mb-2">
                             <div>
-                              <p className="font-semibold text-sm">
-                                {formatPhone(message.from_user)}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {message.date}
-                              </p>
+                              <p className="font-semibold text-sm">{formatPhone(message.from_user)}</p>
+                              <p className="text-xs text-muted-foreground">{message.date}</p>
                             </div>
                             <Badge variant="outline">#{index + 1}</Badge>
                           </div>
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap mt-2 p-3 bg-gray-50 rounded-lg">
-                            {message.content}
-                          </p>
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap mt-2 p-3 bg-gray-50 rounded-lg">{message.content}</p>
                         </CardContent>
                       </Card>
                     ))}
@@ -234,12 +211,8 @@ export default function MessagesPage() {
               <Card>
                 <CardContent className="py-12 text-center">
                   <InboxIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-xl font-semibold text-gray-600 mb-2">
-                    No Messages
-                  </p>
-                  <p className="text-gray-500">
-                    This group has no messages yet
-                  </p>
+                  <p className="text-xl font-semibold text-gray-600 mb-2">No Messages</p>
+                  <p className="text-gray-500">This group has no messages yet</p>
                 </CardContent>
               </Card>
             )}

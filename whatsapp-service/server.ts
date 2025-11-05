@@ -1,4 +1,4 @@
-import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
 import express, { Request, Response, NextFunction } from 'express';
 import QRCode from 'qrcode';
 import pino from 'pino';
@@ -286,7 +286,8 @@ async function connectWhatsApp(){
       logger: BAILEYS_LOGGER,
       printQRInTerminal: true,
       auth: state,
-      browser: ['Academic Manager', 'Chrome', '1.0.0'],
+      // Use a well-known browser signature to improve pairing reliability
+      browser: Browsers.macOS('Chrome'),
       connectTimeoutMs:60000,
       defaultQueryTimeoutMs:60000,
       keepAliveIntervalMs:30000,
@@ -1257,6 +1258,55 @@ app.get('/login', (req: Request, res: Response) => {
 });
 
 app.get('/api/qr', async (req: Request, res: Response) => { try { const qr = qrCodeData ? await QRCode.toDataURL(qrCodeData) : null; return res.json({ success:true, connected: connectionState === 'connected', connectionState, phone: connectedPhone, qr }); } catch (err) { logger.error('API QR error:', err); return res.status(500).json({ success:false, error:'Failed to generate QR' }); } });
+
+// Request a pairing code as a fallback when QR linking fails
+// Protect with API key when configured; otherwise accessible for admin setup
+app.get('/api/pairing-code', authenticateAPIKey, async (req: Request, res: Response) => {
+  try {
+    if (!sock) return res.status(503).json({ success:false, error:'WhatsApp socket not initialized' });
+    // Accept phone via query (?phone=+123...) or env var as a convenience for admins
+    const phone = (req.query.phone as string) || process.env.ADMIN_PHONE;
+    if (!phone || !/^\+\d{6,15}$/.test(phone)) {
+      return res.status(400).json({ success:false, error:'Provide phone in international format e.g. +201155547529 via ?phone= or set ADMIN_PHONE env' });
+    }
+    // Baileys supports requesting a pairing code when creds are not registered yet
+    const isRegistered = !!(sock?.authState?.creds?.registered);
+    if (isRegistered) return res.status(400).json({ success:false, error:'Instance already registered. Reset session to re-pair.' });
+    const code = await sock.requestPairingCode(phone);
+    logger.info(`🔐 Pairing code generated for ${phone}: ${code}`);
+    return res.json({ success:true, phone, code });
+  } catch (err:any) {
+    logger.error('Pairing code error:', err?.message || err);
+    return res.status(500).json({ success:false, error: err?.message || 'Failed to generate pairing code' });
+  }
+});
+
+// Admin-safe reset to clear session and trigger a fresh connect & QR
+app.post('/api/session/reset', authenticateAPIKey, async (req: Request, res: Response) => {
+  try {
+    logger.warn('🔄 Admin requested session reset');
+    try {
+      if (sock) {
+        try { if (typeof sock.logout === 'function') await sock.logout(); } catch {}
+        try { if (typeof sock.end === 'function') sock.end(); } catch {}
+      }
+    } catch {}
+    // Clear auth files and backup
+    try { if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive:true, force:true }); } catch {}
+    clearSessionBackup();
+    qrCodeData = null;
+    connectedPhone = null;
+    connectionState = 'disconnected';
+    connectionAttempts = 0;
+    ensureAuthDir();
+    // Reconnect in the background
+    setTimeout(() => connectWhatsApp(), 250);
+    return res.json({ success:true, message:'Session reset. Reconnecting and generating a fresh QR...', status: 'reconnecting' });
+  } catch (err:any) {
+    logger.error('Session reset error:', err?.message || err);
+    return res.status(500).json({ success:false, error: err?.message || 'Failed to reset session' });
+  }
+});
 
 app.use((req: Request, res: Response) => { res.status(404).json({ success:false, error: 'Endpoint not found' }); });
 

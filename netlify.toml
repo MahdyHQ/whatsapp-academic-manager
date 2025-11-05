@@ -1,0 +1,45 @@
+# Netlify configuration for WhatsApp Academic Manager Frontend
+# The frontend is located in a subdirectory of the monorepo
+
+[build]
+  # Base directory where package.json and source code are located
+  base = "whatsapp-service/frontend"
+  
+  # Build command from package.json
+  command = "npm run build"
+  
+  # Next.js builds to .next folder - publish the entire frontend directory
+  # Netlify needs access to .next, public, and other Next.js files
+  publish = "."
+
+# Environment variables (configure these in Netlify UI for security)
+[build.environment]
+  # Node version (matches package.json engines)
+  NODE_VERSION = "22"
+  
+  # Next.js specific optimizations
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# Next.js Plugin for proper deployment
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Headers for security and performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-XSS-Protection = "1; mode=block"
+
+# Cache static assets
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/favicon.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"

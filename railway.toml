@@ -1,8 +1,8 @@
 [build]
 builder = "NIXPACKS"
 buildCommand = "cd whatsapp-service && npm install"
+watchPatterns = ["whatsapp-service/**"]
 
 [deploy]
 startCommand = "cd whatsapp-service && npm start"
 restartPolicyType = "ON_FAILURE"
-watchPatterns = ["whatsapp-service/**"]

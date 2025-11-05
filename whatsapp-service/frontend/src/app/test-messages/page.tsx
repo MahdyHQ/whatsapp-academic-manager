@@ -17,14 +17,36 @@ import {
   Loader2,
   InboxIcon,
   AlertCircle,
+  Image as ImageIcon,
+  Video,
+  Mic,
+  File,
+  MapPin,
+  UserPlus,
+  BarChart3,
+  Reply,
+  Forward,
+  Trash2,
+  Music,
 } from 'lucide-react';
 
 interface Message {
   id: string;
   from_user: string;
+  fromMe: boolean;
+  messageType: string;
   content: string;
+  caption?: string;
   timestamp: number;
   date: string;
+  quotedMessage?: {
+    participant: string;
+    content: string;
+  };
+  mentionedJids?: string[];
+  isForwarded?: boolean;
+  isDeleted?: boolean;
+  mediaInfo?: any;
 }
 
 function TestMessagesInner() {
@@ -62,7 +84,7 @@ function TestMessagesInner() {
       setGroupName((data && (data.group_name || data.groupName)) || 'Unknown Group');
 
       if (!msgs || msgs.length === 0) {
-        setError('No messages found in this group. Note: Messages are only available after WhatsApp has synced them. Try sending a message to the group first, or wait for new messages to arrive.');
+        setError('No messages found in this group. The group might be empty or message history is not available yet.');
       }
     } catch (err: any) {
       if (err instanceof APIError) {
@@ -85,6 +107,55 @@ function TestMessagesInner() {
   const formatPhone = (phone: string) => {
     const match = phone.match(/(\d+)/);
     return match ? `+${match[1]}` : phone;
+  };
+
+  const getMessageTypeIcon = (type: string) => {
+    switch (type) {
+      case 'image':
+        return <ImageIcon className="w-4 h-4" />;
+      case 'video':
+        return <Video className="w-4 h-4" />;
+      case 'voice':
+        return <Mic className="w-4 h-4" />;
+      case 'audio':
+        return <Music className="w-4 h-4" />;
+      case 'document':
+        return <File className="w-4 h-4" />;
+      case 'location':
+        return <MapPin className="w-4 h-4" />;
+      case 'contact':
+        return <UserPlus className="w-4 h-4" />;
+      case 'poll':
+        return <BarChart3 className="w-4 h-4" />;
+      case 'deleted':
+        return <Trash2 className="w-4 h-4 text-red-500" />;
+      default:
+        return <MessageSquare className="w-4 h-4" />;
+    }
+  };
+
+  const getMessageTypeBadgeColor = (type: string) => {
+    switch (type) {
+      case 'image':
+        return 'bg-purple-100 text-purple-700';
+      case 'video':
+        return 'bg-pink-100 text-pink-700';
+      case 'voice':
+      case 'audio':
+        return 'bg-green-100 text-green-700';
+      case 'document':
+        return 'bg-orange-100 text-orange-700';
+      case 'location':
+        return 'bg-red-100 text-red-700';
+      case 'contact':
+        return 'bg-cyan-100 text-cyan-700';
+      case 'poll':
+        return 'bg-indigo-100 text-indigo-700';
+      case 'deleted':
+        return 'bg-gray-100 text-gray-500';
+      default:
+        return 'bg-blue-100 text-blue-700';
+    }
   };
 
   return (
@@ -201,14 +272,44 @@ function TestMessagesInner() {
             <CardContent>
               <div className="space-y-3 max-h-[600px] overflow-y-auto">
                 {messages.map((message, index) => (
-                  <Card key={message.id} className="border-l-4 border-blue-500">
+                  <Card 
+                    key={message.id} 
+                    className={`border-l-4 ${
+                      message.fromMe 
+                        ? 'border-green-500 bg-green-50' 
+                        : message.isDeleted
+                        ? 'border-gray-300 bg-gray-50'
+                        : 'border-blue-500'
+                    }`}
+                  >
                     <CardContent className="pt-4">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="space-y-1">
-                          <p className="font-semibold text-sm flex items-center gap-2">
-                            <User className="w-4 h-4 text-gray-500" />
-                            {formatPhone(message.from_user)}
-                          </p>
+                      {/* Header with user and metadata */}
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="space-y-2 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-sm flex items-center gap-2">
+                              <User className="w-4 h-4 text-gray-500" />
+                              {formatPhone(message.from_user)}
+                            </p>
+                            {message.fromMe && (
+                              <Badge variant="secondary" className="text-xs">
+                                You
+                              </Badge>
+                            )}
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs flex items-center gap-1 ${getMessageTypeBadgeColor(message.messageType)}`}
+                            >
+                              {getMessageTypeIcon(message.messageType)}
+                              {message.messageType}
+                            </Badge>
+                            {message.isForwarded && (
+                              <Badge variant="outline" className="text-xs flex items-center gap-1 bg-amber-100 text-amber-700">
+                                <Forward className="w-3 h-3" />
+                                Forwarded
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground flex items-center gap-2">
                             <Calendar className="w-3 h-3" />
                             {message.date}
@@ -216,9 +317,117 @@ function TestMessagesInner() {
                         </div>
                         <Badge variant="outline">#{index + 1}</Badge>
                       </div>
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap mt-2 p-3 bg-gray-50 rounded-lg">
-                        {message.content}
-                      </p>
+
+                      {/* Quoted Message */}
+                      {message.quotedMessage && (
+                        <div className="mb-3 p-2 bg-gray-100 border-l-2 border-gray-400 rounded text-xs">
+                          <div className="flex items-center gap-1 text-gray-600 mb-1">
+                            <Reply className="w-3 h-3" />
+                            <span className="font-semibold">
+                              Replying to {formatPhone(message.quotedMessage.participant)}
+                            </span>
+                          </div>
+                          <p className="text-gray-700 italic">
+                            {message.quotedMessage.content}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Main Content */}
+                      <div className="mt-2">
+                        <p className={`text-sm whitespace-pre-wrap p-3 rounded-lg ${
+                          message.isDeleted 
+                            ? 'bg-gray-100 text-gray-500 italic' 
+                            : 'bg-white text-gray-700'
+                        }`}>
+                          {message.content}
+                        </p>
+                        
+                        {/* Caption for media */}
+                        {message.caption && message.caption !== message.content && (
+                          <p className="text-xs text-gray-600 mt-2 italic">
+                            Caption: {message.caption}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Media Info */}
+                      {message.mediaInfo && (
+                        <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <p className="text-xs font-semibold text-blue-900 mb-2">Media Details:</p>
+                          <div className="grid grid-cols-2 gap-2 text-xs text-blue-800">
+                            {message.mediaInfo.mimetype && (
+                              <div>
+                                <span className="font-semibold">Type:</span> {message.mediaInfo.mimetype}
+                              </div>
+                            )}
+                            {message.mediaInfo.fileSize && (
+                              <div>
+                                <span className="font-semibold">Size:</span> {(message.mediaInfo.fileSize / 1024 / 1024).toFixed(2)} MB
+                              </div>
+                            )}
+                            {message.mediaInfo.duration && (
+                              <div>
+                                <span className="font-semibold">Duration:</span> {message.mediaInfo.duration}s
+                              </div>
+                            )}
+                            {message.mediaInfo.width && message.mediaInfo.height && (
+                              <div>
+                                <span className="font-semibold">Dimensions:</span> {message.mediaInfo.width}x{message.mediaInfo.height}
+                              </div>
+                            )}
+                            {message.mediaInfo.fileName && (
+                              <div className="col-span-2">
+                                <span className="font-semibold">File:</span> {message.mediaInfo.fileName}
+                              </div>
+                            )}
+                            {message.mediaInfo.latitude && message.mediaInfo.longitude && (
+                              <>
+                                <div className="col-span-2">
+                                  <span className="font-semibold">Coordinates:</span> {message.mediaInfo.latitude}, {message.mediaInfo.longitude}
+                                </div>
+                                {message.mediaInfo.name && (
+                                  <div className="col-span-2">
+                                    <span className="font-semibold">Place:</span> {message.mediaInfo.name}
+                                  </div>
+                                )}
+                                {message.mediaInfo.address && (
+                                  <div className="col-span-2">
+                                    <span className="font-semibold">Address:</span> {message.mediaInfo.address}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            {message.mediaInfo.displayName && (
+                              <div className="col-span-2">
+                                <span className="font-semibold">Contact:</span> {message.mediaInfo.displayName}
+                              </div>
+                            )}
+                            {message.mediaInfo.name && message.messageType === 'poll' && (
+                              <>
+                                <div className="col-span-2">
+                                  <span className="font-semibold">Poll Question:</span> {message.mediaInfo.name}
+                                </div>
+                                <div className="col-span-2">
+                                  <span className="font-semibold">Options:</span>
+                                  <ul className="list-disc list-inside mt-1">
+                                    {message.mediaInfo.options?.map((opt: string, i: number) => (
+                                      <li key={i}>{opt}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Mentions */}
+                      {message.mentionedJids && message.mentionedJids.length > 0 && (
+                        <div className="mt-2 text-xs text-gray-600">
+                          <span className="font-semibold">Mentions:</span> {message.mentionedJids.map(formatPhone).join(', ')}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}

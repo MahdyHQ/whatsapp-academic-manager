@@ -201,9 +201,160 @@ loadBackupFromDisk();
 
 // (The remainder of server.ts you provided continues unchanged)
 // Baileys helpers
-function getPreferredIdFromKey(key: any) { if (!key) return null; return key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || null; }
-function extractMessageContent(m: any) { if (!m || !m.message) return ''; const msg = m.message; return msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || ''; }
-function extractMessageTimestamp(m: any) { return m?.messageTimestamp || m?.message?.messageTimestamp || m?.messageTimestampSeconds || null; }
+function getPreferredIdFromKey(key: any) { 
+  if (!key) return null; 
+  return key.participant || key.remoteJid || key.participantAlt || key.remoteJidAlt || null; 
+}
+
+// Enhanced message content extractor with detailed type information
+function extractMessageDetails(m: any) {
+  if (!m || !m.message) return null;
+  
+  const msg = m.message;
+  const key = m.key || {};
+  
+  let messageType = 'unknown';
+  let content = '';
+  let mediaUrl = '';
+  let caption = '';
+  let quotedMessage = null;
+  let mentionedJids: string[] = [];
+  let isForwarded = false;
+  let isDeleted = false;
+  let reactions: any[] = [];
+  let mediaInfo: any = {};
+
+  // Handle different message types
+  if (msg.conversation) {
+    messageType = 'text';
+    content = msg.conversation;
+  } else if (msg.extendedTextMessage) {
+    messageType = 'text';
+    content = msg.extendedTextMessage.text || '';
+    mentionedJids = msg.extendedTextMessage.contextInfo?.mentionedJid || [];
+    isForwarded = !!msg.extendedTextMessage.contextInfo?.isForwarded;
+    
+    // Check for quoted message
+    if (msg.extendedTextMessage.contextInfo?.quotedMessage) {
+      quotedMessage = {
+        participant: msg.extendedTextMessage.contextInfo.participant,
+        content: msg.extendedTextMessage.contextInfo.quotedMessage.conversation || 
+                 msg.extendedTextMessage.contextInfo.quotedMessage.extendedTextMessage?.text || ''
+      };
+    }
+  } else if (msg.imageMessage) {
+    messageType = 'image';
+    caption = msg.imageMessage.caption || '';
+    content = caption || '[Image]';
+    mediaInfo = {
+      mimetype: msg.imageMessage.mimetype,
+      fileSize: msg.imageMessage.fileLength,
+      width: msg.imageMessage.width,
+      height: msg.imageMessage.height,
+      url: msg.imageMessage.url
+    };
+  } else if (msg.videoMessage) {
+    messageType = 'video';
+    caption = msg.videoMessage.caption || '';
+    content = caption || '[Video]';
+    mediaInfo = {
+      mimetype: msg.videoMessage.mimetype,
+      fileSize: msg.videoMessage.fileLength,
+      duration: msg.videoMessage.seconds,
+      width: msg.videoMessage.width,
+      height: msg.videoMessage.height,
+      url: msg.videoMessage.url
+    };
+  } else if (msg.audioMessage) {
+    messageType = msg.audioMessage.ptt ? 'voice' : 'audio';
+    content = `[${messageType === 'voice' ? 'Voice Note' : 'Audio'}]`;
+    mediaInfo = {
+      mimetype: msg.audioMessage.mimetype,
+      fileSize: msg.audioMessage.fileLength,
+      duration: msg.audioMessage.seconds,
+      url: msg.audioMessage.url
+    };
+  } else if (msg.documentMessage) {
+    messageType = 'document';
+    content = `[Document: ${msg.documentMessage.fileName || 'file'}]`;
+    mediaInfo = {
+      mimetype: msg.documentMessage.mimetype,
+      fileSize: msg.documentMessage.fileLength,
+      fileName: msg.documentMessage.fileName,
+      url: msg.documentMessage.url
+    };
+  } else if (msg.stickerMessage) {
+    messageType = 'sticker';
+    content = '[Sticker]';
+    mediaInfo = {
+      width: msg.stickerMessage.width,
+      height: msg.stickerMessage.height,
+      url: msg.stickerMessage.url
+    };
+  } else if (msg.locationMessage) {
+    messageType = 'location';
+    content = `[Location: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}]`;
+    mediaInfo = {
+      latitude: msg.locationMessage.degreesLatitude,
+      longitude: msg.locationMessage.degreesLongitude,
+      name: msg.locationMessage.name || '',
+      address: msg.locationMessage.address || ''
+    };
+  } else if (msg.contactMessage) {
+    messageType = 'contact';
+    content = `[Contact: ${msg.contactMessage.displayName || 'Unknown'}]`;
+    mediaInfo = {
+      displayName: msg.contactMessage.displayName,
+      vcard: msg.contactMessage.vcard
+    };
+  } else if (msg.pollCreationMessage) {
+    messageType = 'poll';
+    content = `[Poll: ${msg.pollCreationMessage.name}]`;
+    mediaInfo = {
+      name: msg.pollCreationMessage.name,
+      options: msg.pollCreationMessage.options?.map((o: any) => o.optionName) || [],
+      selectableCount: msg.pollCreationMessage.selectableOptionsCount || 1
+    };
+  } else if (msg.reactionMessage) {
+    messageType = 'reaction';
+    content = `[Reaction: ${msg.reactionMessage.text}]`;
+    mediaInfo = {
+      emoji: msg.reactionMessage.text,
+      messageKey: msg.reactionMessage.key
+    };
+  } else if (msg.protocolMessage) {
+    if (msg.protocolMessage.type === 0) { // REVOKE
+      messageType = 'deleted';
+      content = '[Message deleted]';
+      isDeleted = true;
+    }
+  }
+
+  return {
+    id: key.id,
+    fromMe: key.fromMe || false,
+    participant: key.participant,
+    remoteJid: key.remoteJid,
+    messageType,
+    content,
+    caption,
+    quotedMessage,
+    mentionedJids,
+    isForwarded,
+    isDeleted,
+    mediaInfo: Object.keys(mediaInfo).length > 0 ? mediaInfo : null,
+    rawMessage: msg // Include raw message for advanced processing
+  };
+}
+
+function extractMessageContent(m: any) { 
+  const details = extractMessageDetails(m);
+  return details?.content || '';
+}
+
+function extractMessageTimestamp(m: any) { 
+  return m?.messageTimestamp || m?.message?.messageTimestamp || m?.messageTimestampSeconds || null; 
+}
 
 // Auth middleware
 const authenticateAPIKey = (req: Request, res: Response, next: NextFunction) => {
@@ -418,77 +569,122 @@ async function connectWhatsApp(){
   }
 }
 
-// fetchMessagesFromWAWrapper (copied & typed)
+// Enhanced message fetcher with on-demand sync capability
 async function fetchMessagesFromWAWrapper(groupId: string, limit = 50) {
   if (!sock) throw new Error('WhatsApp socket not initialized');
   logger.info(`fetchMessagesFromWAWrapper: fetching messages for group=${groupId} limit=${limit}`);
   
-  // Try the in-memory message store first (fastest)
+  let messages: any[] = [];
+
+  // STRATEGY 1: Check in-memory message store first (fastest)
   if (messageStore.has(groupId)) {
     const msgMap = messageStore.get(groupId);
     if (msgMap && msgMap.size > 0) {
-      const msgs = Array.from(msgMap.values()).slice(-limit);
-      logger.info(`fetchMessagesFromWAWrapper: found ${msgs.length} messages in messageStore`);
-      if (msgs.length > 0) return msgs;
+      messages = Array.from(msgMap.values()).slice(-limit);
+      logger.info(`fetchMessagesFromWAWrapper: found ${messages.length} messages in messageStore cache`);
+      if (messages.length >= limit) return messages; // Sufficient messages in cache
     }
   }
 
-  // Try Baileys 7.x fetchMessageHistory (the correct method for fetching message history)
-  if (typeof sock.fetchMessageHistory === 'function') {
+  // STRATEGY 2: Try to load messages from WhatsApp using on-demand history sync
+  // This works by requesting message history for a chat
+  if (typeof sock.fetchMessageHistory === 'function' && messages.length < limit) {
     try {
-      logger.info('fetchMessagesFromWAWrapper: attempting sock.fetchMessageHistory()');
-      // fetchMessageHistory requires a message key as anchor point
-      // We'll try to get the latest message key from the group
-      const messages = await sock.fetchMessageHistory(limit, { remoteJid: groupId, fromMe: false, id: '' }, undefined);
-      if (messages && messages.length > 0) {
-        logger.info(`fetchMessagesFromWAWrapper: fetchMessageHistory returned ${messages.length} messages`);
-        // Store messages for future quick access
-        messages.forEach(m => rememberMessage(m));
-        return messages;
-      }
-    } catch (err) {
-      logger.error('fetchMessagesFromWAWrapper: fetchMessageHistory threw:', err);
-    }
-  }
-
-  // Fallback: try to load from chat metadata if available
-  if (sock.store && typeof sock.groupMetadata === 'function') {
-    try {
-      logger.info('fetchMessagesFromWAWrapper: attempting to fetch via groupMetadata');
-      const metadata = await sock.groupMetadata(groupId);
-      if (metadata) {
-        logger.info(`fetchMessagesFromWAWrapper: found group metadata for ${metadata.subject}`);
-      }
-    } catch (err) {
-      logger.warn('fetchMessagesFromWAWrapper: groupMetadata call failed:', err);
-    }
-  }
-
-  // Last resort: check if sock has a store with messages
-  if (sock.store && sock.store.messages) {
-    logger.info('fetchMessagesFromWAWrapper: attempting in-memory store lookup');
-    try {
-      if (typeof sock.store.messages.get === 'function') {
-        const chatMap = sock.store.messages.get(groupId);
-        if (chatMap && (typeof chatMap.values === 'function')) {
-          const msgs = Array.from(chatMap.values());
-          logger.info(`fetchMessagesFromWAWrapper: store.get returned ${msgs.length} messages`);
-          if (msgs.length > 0) return msgs;
+      logger.info('fetchMessagesFromWAWrapper: attempting on-demand history sync via fetchMessageHistory()');
+      
+      // First, get a recent message from the group to use as anchor
+      let anchorKey: any = null;
+      
+      // Try to find an existing message as anchor
+      if (messageStore.has(groupId)) {
+        const msgMap = messageStore.get(groupId);
+        if (msgMap && msgMap.size > 0) {
+          const msgs = Array.from(msgMap.values());
+          if (msgs.length > 0) {
+            const lastMsg = msgs[msgs.length - 1];
+            anchorKey = lastMsg.key;
+            logger.info('fetchMessagesFromWAWrapper: using cached message as anchor');
+          }
         }
       }
-      if (sock.store.messages[groupId]) {
-        const raw = sock.store.messages[groupId];
-        const msgs = Array.isArray(raw) ? raw : Object.values(raw || {});
-        logger.info(`fetchMessagesFromWAWrapper: store[index] returned ${msgs.length} messages`);
-        if (msgs.length > 0) return msgs;
+
+      // If no anchor, try to get chat metadata which may have last message info
+      if (!anchorKey && sock.store?.chats) {
+        try {
+          const chat = await sock.store.chats[groupId];
+          if (chat && chat.messages && chat.messages.length > 0) {
+            anchorKey = chat.messages[0].key;
+            logger.info('fetchMessagesFromWAWrapper: using chat store message as anchor');
+          }
+        } catch {}
       }
-    } catch (err) {
-      logger.error('fetchMessagesFromWAWrapper: error reading store:', err);
+
+      // Fetch message history (works even without anchor in Baileys 7.x)
+      const historyMessages = await sock.fetchMessageHistory(
+        limit * 2, // Request more than needed to account for filtered messages
+        anchorKey || { remoteJid: groupId, fromMe: false, id: '' },
+        anchorKey ? (anchorKey.messageTimestamp || undefined) : undefined
+      );
+
+      if (historyMessages && historyMessages.length > 0) {
+        logger.info(`fetchMessagesFromWAWrapper: fetchMessageHistory returned ${historyMessages.length} messages`);
+        // Store all fetched messages for future access
+        historyMessages.forEach((m: any) => rememberMessage(m));
+        messages = historyMessages.slice(-limit);
+      }
+    } catch (err: any) {
+      logger.warn('fetchMessagesFromWAWrapper: fetchMessageHistory error:', err?.message || err);
     }
   }
 
-  logger.warn(`fetchMessagesFromWAWrapper: no messages found for group ${groupId}. Messages may not be cached yet. Try sending a message to the group first.`);
-  return [];
+  // STRATEGY 3: Check sock.store if available
+  if (messages.length < limit && sock.store?.messages) {
+    logger.info('fetchMessagesFromWAWrapper: checking sock.store.messages');
+    try {
+      let storeMessages: any[] = [];
+      
+      // Try different store access patterns
+      if (typeof sock.store.messages.get === 'function') {
+        const chatMap = sock.store.messages.get(groupId);
+        if (chatMap) {
+          if (typeof chatMap.values === 'function') {
+            storeMessages = Array.from(chatMap.values());
+          } else if (Array.isArray(chatMap)) {
+            storeMessages = chatMap;
+          } else if (typeof chatMap === 'object') {
+            storeMessages = Object.values(chatMap);
+          }
+        }
+      } else if (sock.store.messages[groupId]) {
+        const raw = sock.store.messages[groupId];
+        storeMessages = Array.isArray(raw) ? raw : Object.values(raw || {});
+      }
+
+      if (storeMessages.length > 0) {
+        logger.info(`fetchMessagesFromWAWrapper: found ${storeMessages.length} messages in sock.store`);
+        // Merge with existing messages (avoid duplicates by message ID)
+        const existingIds = new Set(messages.map((m: any) => m.key?.id).filter(Boolean));
+        const newMessages = storeMessages.filter((m: any) => !existingIds.has(m.key?.id));
+        messages = [...messages, ...newMessages].slice(-limit);
+      }
+    } catch (err: any) {
+      logger.warn('fetchMessagesFromWAWrapper: error reading sock.store:', err?.message || err);
+    }
+  }
+
+  // Sort messages by timestamp
+  if (messages.length > 0) {
+    messages.sort((a: any, b: any) => {
+      const tsA = extractMessageTimestamp(a) || 0;
+      const tsB = extractMessageTimestamp(b) || 0;
+      return tsA - tsB;
+    });
+    logger.info(`fetchMessagesFromWAWrapper: returning ${messages.length} messages`);
+  } else {
+    logger.warn(`fetchMessagesFromWAWrapper: no messages found for group ${groupId}`);
+  }
+
+  return messages;
 }
 
 
@@ -1251,9 +1447,33 @@ async function handleGetMessages(req: Request & { user?: any }, res: Response) {
       logger.error('WhatsApp service error:', e.message);
       return res.status(500).json({ success:false, error: `WhatsApp service error: ${JSON.stringify({ success:false, error: e.message })}` });
     }
+    
+    // Format messages with detailed information
     const formatted = msgs
-      .map((m:any)=>{ const ts = extractMessageTimestamp(m) || Math.floor(Date.now()/1000); const content = extractMessageContent(m); return { id: m.key?.id, from_user: getPreferredIdFromKey(m.key), content, timestamp: ts, date: ts ? new Date(ts*1000).toLocaleString() : new Date().toLocaleString() }; })
-      .filter((m:any)=>m.content);
+      .map((m:any)=> {
+        const ts = extractMessageTimestamp(m) || Math.floor(Date.now()/1000);
+        const details = extractMessageDetails(m);
+        
+        if (!details) return null;
+        
+        return {
+          id: details.id,
+          from_user: getPreferredIdFromKey(m.key),
+          fromMe: details.fromMe,
+          messageType: details.messageType,
+          content: details.content,
+          caption: details.caption,
+          timestamp: ts,
+          date: ts ? new Date(ts*1000).toLocaleString() : new Date().toLocaleString(),
+          quotedMessage: details.quotedMessage,
+          mentionedJids: details.mentionedJids,
+          isForwarded: details.isForwarded,
+          isDeleted: details.isDeleted,
+          mediaInfo: details.mediaInfo
+        };
+      })
+      .filter((m:any)=>m !== null);
+      
     const groupInfo = await sock.groupMetadata(groupId);
     // best-effort cache populate (mirrors cachedGroupMetadata logic)
     try {
@@ -1271,8 +1491,14 @@ async function handleGetMessages(req: Request & { user?: any }, res: Response) {
         (global as any)[sym] = local;
       } catch {}
     } catch (err) { logger.warn('Failed to cache group metadata:', err && (err as any).message ? (err as any).message : err); }
-    logger.info(`📱 ${req.user?.phone} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`);
-    res.json({ success:true, count: formatted.length, group_name: groupInfo.subject, messages: formatted });
+    logger.info(`📱 ${req.user?.phone || 'API'} fetched ${formatted.length} messages from ${groupInfo?.subject || groupId}`);
+    res.json({ 
+      success:true, 
+      count: formatted.length, 
+      group_name: groupInfo.subject,
+      group_id: groupId,
+      messages: formatted 
+    });
   } catch (error) {
     logger.error('Messages endpoint error:', error);
     res.status(500).json({ success:false, error: (error as Error).message });

@@ -102,6 +102,7 @@ Notes:
 - The production endpoints used in this repo (from previous checks):
   - Whatsapp service (production): https://whatsapp-academic-manager-production.up.railway.app/
   - Backend forwarding: https://wam-api-production.up.railway.app/
+  - Frontend (production): https://ai-app-control.netlify.app/
 
 -------------------------
 3) Environment variables discovered (keys, source file / default / example)
@@ -149,6 +150,20 @@ From repo root `.env.example` (project-wide examples — treat these as examples
 
 From `whatsapp-service/frontend/.env.local`:
 - NEXT_PUBLIC_API_URL = https://whatsapp-academic-manager-production.up.railway.app  (public frontend config)
+- NEXT_PUBLIC_BACKEND_URL = https://wam-api-production.up.railway.app  (backend API endpoint)
+- NEXT_PUBLIC_API_KEY  (API key for backend requests) [REDACTED]
+- NEXT_PUBLIC_APP_NAME = Academic Manager
+- NEXT_PUBLIC_APP_VERSION = 2.4.0
+
+Deployment platforms:
+- Frontend: Netlify (https://ai-app-control.netlify.app/)
+  - Base directory: whatsapp-service/frontend
+  - Build command: npm run build
+  - Publish directory: .next
+  - Node version: 22.x
+  - Plugin: @netlify/plugin-nextjs v5.14.5
+- WhatsApp Service: Railway (https://whatsapp-academic-manager-production.up.railway.app/)
+- Backend API: Railway (https://wam-api-production.up.railway.app/)
 
 Files where environment variables are read or used:
 - /whatsapp-service/config.mjs
@@ -207,3 +222,4 @@ Edge cases to consider when debugging message fetching:
 -------------------------
 End of summary
 -------------------------
+

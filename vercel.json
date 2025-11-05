@@ -1,7 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm install && npm run build",
-  "outputDirectory": "whatsapp-service/frontend/.next",
-  "installCommand": "echo 'Dependencies installed via buildCommand'",
-  "framework": null
-}

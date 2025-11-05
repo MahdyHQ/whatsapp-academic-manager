@@ -1,11 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useWhatsAppGroups } from '@/lib/hooks/use-whatsapp';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useWhatsAppGroups } from '../../lib/hooks/use-whatsapp';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import { Badge } from '../../components/ui/badge';
+import { Skeleton } from '../../components/ui/skeleton';
 import Link from 'next/link';
 import {
   ArrowLeft,

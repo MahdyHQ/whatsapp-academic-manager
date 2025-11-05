@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, authHelpers, APIError } from '@/lib/api/api';
+import { api, authHelpers, APIError } from '../lib/api/api';
 
 interface User {
   phone: string;

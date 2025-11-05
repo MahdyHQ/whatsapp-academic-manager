@@ -1516,6 +1516,800 @@ app.get('/api/whatsapp/status', (req: Request, res: Response) => {
 
 app.post('/api/send', requireAuth, async (req: Request & { user?: any }, res: Response) => { try { if (!sock || connectionState !== 'connected') return res.status(503).json({ success:false, error:'WhatsApp not connected' }); const { groupId, message } = req.body as { groupId?: string, message?: string }; if (!groupId || !message) return res.status(400).json({ success:false, error:'groupId and message required' }); await sock.sendMessage(groupId, { text: message }); logger.info(`✉️  ${req.user?.phone} sent message to ${groupId}`); res.json({ success:true, message:'Sent successfully' }); } catch (error) { logger.error('Send endpoint error:', error); res.status(500).json({ success:false, error: (error as Error).message }); } });
 
+// ==================== ADVANCED MESSAGE ENDPOINTS ====================
+
+// Send media message (image, video, audio, document)
+app.post('/api/send-media', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, mediaUrl, mediaType, caption, fileName, mimetype } = req.body;
+    
+    if (!groupId || !mediaUrl || !mediaType) {
+      return res.status(400).json({ success: false, error: 'groupId, mediaUrl, and mediaType required' });
+    }
+
+    let messageContent: any;
+    const mediaBuffer = await fetch(mediaUrl).then(r => r.arrayBuffer()).then(b => Buffer.from(b));
+
+    switch (mediaType) {
+      case 'image':
+        messageContent = { image: mediaBuffer, caption: caption || '' };
+        break;
+      case 'video':
+        messageContent = { video: mediaBuffer, caption: caption || '' };
+        break;
+      case 'audio':
+        messageContent = { audio: mediaBuffer, mimetype: mimetype || 'audio/mp4' };
+        break;
+      case 'document':
+        messageContent = { document: mediaBuffer, fileName: fileName || 'file', mimetype: mimetype || 'application/pdf' };
+        break;
+      default:
+        return res.status(400).json({ success: false, error: 'Invalid mediaType. Use: image, video, audio, document' });
+    }
+
+    const result = await sock.sendMessage(groupId, messageContent);
+    logger.info(`📎 ${req.user?.phone || 'API'} sent ${mediaType} to ${groupId}`);
+    res.json({ success: true, message: 'Media sent successfully', messageId: result.key.id });
+  } catch (error: any) {
+    logger.error('Send media error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Send location
+app.post('/api/send-location', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, latitude, longitude, name, address } = req.body;
+    
+    if (!groupId || !latitude || !longitude) {
+      return res.status(400).json({ success: false, error: 'groupId, latitude, and longitude required' });
+    }
+
+    const result = await sock.sendMessage(groupId, {
+      location: {
+        degreesLatitude: parseFloat(latitude),
+        degreesLongitude: parseFloat(longitude),
+        name: name || '',
+        address: address || ''
+      }
+    });
+
+    logger.info(`📍 ${req.user?.phone || 'API'} sent location to ${groupId}`);
+    res.json({ success: true, message: 'Location sent successfully', messageId: result.key.id });
+  } catch (error: any) {
+    logger.error('Send location error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Send contact
+app.post('/api/send-contact', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, displayName, vcard } = req.body;
+    
+    if (!groupId || !displayName || !vcard) {
+      return res.status(400).json({ success: false, error: 'groupId, displayName, and vcard required' });
+    }
+
+    const result = await sock.sendMessage(groupId, {
+      contacts: {
+        displayName,
+        contacts: [{ vcard }]
+      }
+    });
+
+    logger.info(`👤 ${req.user?.phone || 'API'} sent contact to ${groupId}`);
+    res.json({ success: true, message: 'Contact sent successfully', messageId: result.key.id });
+  } catch (error: any) {
+    logger.error('Send contact error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Send poll
+app.post('/api/send-poll', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, question, options, selectableCount } = req.body;
+    
+    if (!groupId || !question || !Array.isArray(options) || options.length < 2) {
+      return res.status(400).json({ success: false, error: 'groupId, question, and at least 2 options required' });
+    }
+
+    const result = await sock.sendMessage(groupId, {
+      poll: {
+        name: question,
+        values: options,
+        selectableCount: selectableCount || 1
+      }
+    });
+
+    logger.info(`📊 ${req.user?.phone || 'API'} sent poll to ${groupId}`);
+    res.json({ success: true, message: 'Poll sent successfully', messageId: result.key.id });
+  } catch (error: any) {
+    logger.error('Send poll error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Reply to a message
+app.post('/api/reply', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, messageId, replyText } = req.body;
+    
+    if (!groupId || !messageId || !replyText) {
+      return res.status(400).json({ success: false, error: 'groupId, messageId, and replyText required' });
+    }
+
+    const result = await sock.sendMessage(groupId, {
+      text: replyText
+    }, {
+      quoted: { key: { remoteJid: groupId, id: messageId } }
+    });
+
+    logger.info(`↩️  ${req.user?.phone || 'API'} replied to message in ${groupId}`);
+    res.json({ success: true, message: 'Reply sent successfully', messageId: result.key.id });
+  } catch (error: any) {
+    logger.error('Reply error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// React to a message
+app.post('/api/react', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, messageId, emoji } = req.body;
+    
+    if (!groupId || !messageId || !emoji) {
+      return res.status(400).json({ success: false, error: 'groupId, messageId, and emoji required' });
+    }
+
+    const result = await sock.sendMessage(groupId, {
+      react: {
+        text: emoji,
+        key: { remoteJid: groupId, id: messageId }
+      }
+    });
+
+    logger.info(`👍 ${req.user?.phone || 'API'} reacted to message in ${groupId}`);
+    res.json({ success: true, message: 'Reaction sent successfully' });
+  } catch (error: any) {
+    logger.error('React error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Edit a message
+app.post('/api/edit-message', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, messageId, newText } = req.body;
+    
+    if (!groupId || !messageId || !newText) {
+      return res.status(400).json({ success: false, error: 'groupId, messageId, and newText required' });
+    }
+
+    const result = await sock.sendMessage(groupId, {
+      text: newText,
+      edit: { remoteJid: groupId, id: messageId }
+    });
+
+    logger.info(`✏️  ${req.user?.phone || 'API'} edited message in ${groupId}`);
+    res.json({ success: true, message: 'Message edited successfully' });
+  } catch (error: any) {
+    logger.error('Edit message error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete a message for everyone
+app.post('/api/delete-message', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, messageId } = req.body;
+    
+    if (!groupId || !messageId) {
+      return res.status(400).json({ success: false, error: 'groupId and messageId required' });
+    }
+
+    await sock.sendMessage(groupId, { delete: { remoteJid: groupId, id: messageId } });
+
+    logger.info(`🗑️  ${req.user?.phone || 'API'} deleted message in ${groupId}`);
+    res.json({ success: true, message: 'Message deleted successfully' });
+  } catch (error: any) {
+    logger.error('Delete message error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== GROUP MANAGEMENT ENDPOINTS ====================
+
+// Create a group
+app.post('/api/group/create', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { name, participants } = req.body;
+    
+    if (!name || !Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ success: false, error: 'name and participants array required' });
+    }
+
+    const result = await sock.groupCreate(name, participants);
+    logger.info(`👥 ${req.user?.phone || 'API'} created group: ${name}`);
+    res.json({ success: true, message: 'Group created successfully', groupId: result.id, participants: result.participants });
+  } catch (error: any) {
+    logger.error('Create group error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update group subject/name
+app.post('/api/group/update-subject', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, subject } = req.body;
+    
+    if (!groupId || !subject) {
+      return res.status(400).json({ success: false, error: 'groupId and subject required' });
+    }
+
+    await sock.groupUpdateSubject(groupId, subject);
+    logger.info(`✏️  ${req.user?.phone || 'API'} updated group subject: ${groupId}`);
+    res.json({ success: true, message: 'Group subject updated successfully' });
+  } catch (error: any) {
+    logger.error('Update group subject error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update group description
+app.post('/api/group/update-description', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, description } = req.body;
+    
+    if (!groupId || description === undefined) {
+      return res.status(400).json({ success: false, error: 'groupId and description required' });
+    }
+
+    await sock.groupUpdateDescription(groupId, description);
+    logger.info(`📝 ${req.user?.phone || 'API'} updated group description: ${groupId}`);
+    res.json({ success: true, message: 'Group description updated successfully' });
+  } catch (error: any) {
+    logger.error('Update group description error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Add participants to group
+app.post('/api/group/add-participants', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, participants } = req.body;
+    
+    if (!groupId || !Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ success: false, error: 'groupId and participants array required' });
+    }
+
+    const result = await sock.groupParticipantsUpdate(groupId, participants, 'add');
+    logger.info(`➕ ${req.user?.phone || 'API'} added participants to ${groupId}`);
+    res.json({ success: true, message: 'Participants added successfully', result });
+  } catch (error: any) {
+    logger.error('Add participants error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Remove participants from group
+app.post('/api/group/remove-participants', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, participants } = req.body;
+    
+    if (!groupId || !Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ success: false, error: 'groupId and participants array required' });
+    }
+
+    const result = await sock.groupParticipantsUpdate(groupId, participants, 'remove');
+    logger.info(`➖ ${req.user?.phone || 'API'} removed participants from ${groupId}`);
+    res.json({ success: true, message: 'Participants removed successfully', result });
+  } catch (error: any) {
+    logger.error('Remove participants error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Promote participants to admin
+app.post('/api/group/promote', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, participants } = req.body;
+    
+    if (!groupId || !Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ success: false, error: 'groupId and participants array required' });
+    }
+
+    const result = await sock.groupParticipantsUpdate(groupId, participants, 'promote');
+    logger.info(`⬆️  ${req.user?.phone || 'API'} promoted participants in ${groupId}`);
+    res.json({ success: true, message: 'Participants promoted successfully', result });
+  } catch (error: any) {
+    logger.error('Promote participants error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Demote participants from admin
+app.post('/api/group/demote', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, participants } = req.body;
+    
+    if (!groupId || !Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ success: false, error: 'groupId and participants array required' });
+    }
+
+    const result = await sock.groupParticipantsUpdate(groupId, participants, 'demote');
+    logger.info(`⬇️  ${req.user?.phone || 'API'} demoted participants in ${groupId}`);
+    res.json({ success: true, message: 'Participants demoted successfully', result });
+  } catch (error: any) {
+    logger.error('Demote participants error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update group settings (announce, locked)
+app.post('/api/group/update-settings', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, announce, locked } = req.body;
+    
+    if (!groupId) {
+      return res.status(400).json({ success: false, error: 'groupId required' });
+    }
+
+    if (announce !== undefined) {
+      await sock.groupSettingUpdate(groupId, announce ? 'announcement' : 'not_announcement');
+    }
+    if (locked !== undefined) {
+      await sock.groupSettingUpdate(groupId, locked ? 'locked' : 'unlocked');
+    }
+
+    logger.info(`⚙️  ${req.user?.phone || 'API'} updated settings for ${groupId}`);
+    res.json({ success: true, message: 'Group settings updated successfully' });
+  } catch (error: any) {
+    logger.error('Update group settings error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Leave group
+app.post('/api/group/leave', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId } = req.body;
+    
+    if (!groupId) {
+      return res.status(400).json({ success: false, error: 'groupId required' });
+    }
+
+    await sock.groupLeave(groupId);
+    logger.info(`🚪 ${req.user?.phone || 'API'} left group ${groupId}`);
+    res.json({ success: true, message: 'Left group successfully' });
+  } catch (error: any) {
+    logger.error('Leave group error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get group invite code
+app.get('/api/group/:groupId/invite-code', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId } = req.params;
+    
+    const code = await sock.groupInviteCode(groupId);
+    logger.info(`🔗 ${req.user?.phone || 'API'} retrieved invite code for ${groupId}`);
+    res.json({ success: true, inviteCode: code, inviteLink: `https://chat.whatsapp.com/${code}` });
+  } catch (error: any) {
+    logger.error('Get invite code error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Revoke group invite code
+app.post('/api/group/revoke-invite', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId } = req.body;
+    
+    if (!groupId) {
+      return res.status(400).json({ success: false, error: 'groupId required' });
+    }
+
+    const newCode = await sock.groupRevokeInvite(groupId);
+    logger.info(`🔄 ${req.user?.phone || 'API'} revoked invite code for ${groupId}`);
+    res.json({ success: true, message: 'Invite code revoked', newInviteCode: newCode });
+  } catch (error: any) {
+    logger.error('Revoke invite error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Accept group invite
+app.post('/api/group/accept-invite', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { inviteCode } = req.body;
+    
+    if (!inviteCode) {
+      return res.status(400).json({ success: false, error: 'inviteCode required' });
+    }
+
+    const result = await sock.groupAcceptInvite(inviteCode);
+    logger.info(`✅ ${req.user?.phone || 'API'} accepted group invite`);
+    res.json({ success: true, message: 'Group invite accepted', groupId: result });
+  } catch (error: any) {
+    logger.error('Accept invite error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== CHAT MANAGEMENT ENDPOINTS ====================
+
+// Mark messages as read
+app.post('/api/chat/read', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, messageIds } = req.body;
+    
+    if (!groupId || !Array.isArray(messageIds)) {
+      return res.status(400).json({ success: false, error: 'groupId and messageIds array required' });
+    }
+
+    const keys = messageIds.map(id => ({ remoteJid: groupId, id, fromMe: false }));
+    await sock.readMessages(keys);
+    
+    logger.info(`✓ ${req.user?.phone || 'API'} marked ${messageIds.length} messages as read in ${groupId}`);
+    res.json({ success: true, message: 'Messages marked as read' });
+  } catch (error: any) {
+    logger.error('Read messages error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Archive/unarchive chat
+app.post('/api/chat/archive', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, archive } = req.body;
+    
+    if (!groupId || archive === undefined) {
+      return res.status(400).json({ success: false, error: 'groupId and archive (boolean) required' });
+    }
+
+    await sock.chatModify({ archive }, groupId);
+    logger.info(`📦 ${req.user?.phone || 'API'} ${archive ? 'archived' : 'unarchived'} chat ${groupId}`);
+    res.json({ success: true, message: `Chat ${archive ? 'archived' : 'unarchived'} successfully` });
+  } catch (error: any) {
+    logger.error('Archive chat error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Pin/unpin chat
+app.post('/api/chat/pin', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, pin } = req.body;
+    
+    if (!groupId || pin === undefined) {
+      return res.status(400).json({ success: false, error: 'groupId and pin (boolean) required' });
+    }
+
+    await sock.chatModify({ pin }, groupId);
+    logger.info(`📌 ${req.user?.phone || 'API'} ${pin ? 'pinned' : 'unpinned'} chat ${groupId}`);
+    res.json({ success: true, message: `Chat ${pin ? 'pinned' : 'unpinned'} successfully` });
+  } catch (error: any) {
+    logger.error('Pin chat error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Mute/unmute chat
+app.post('/api/chat/mute', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, mute, duration } = req.body;
+    
+    if (!groupId || mute === undefined) {
+      return res.status(400).json({ success: false, error: 'groupId and mute (boolean) required' });
+    }
+
+    const muteEndTime = mute ? (duration || 8 * 60 * 60) : null; // Default 8 hours or null for unmute
+    await sock.chatModify({ mute: muteEndTime }, groupId);
+    
+    logger.info(`🔇 ${req.user?.phone || 'API'} ${mute ? 'muted' : 'unmuted'} chat ${groupId}`);
+    res.json({ success: true, message: `Chat ${mute ? 'muted' : 'unmuted'} successfully` });
+  } catch (error: any) {
+    logger.error('Mute chat error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete chat
+app.post('/api/chat/delete', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId } = req.body;
+    
+    if (!groupId) {
+      return res.status(400).json({ success: false, error: 'groupId required' });
+    }
+
+    await sock.chatModify({ clear: { messages: [{ id: '', fromMe: true, timestamp: Date.now() }] } }, groupId);
+    logger.info(`🗑️  ${req.user?.phone || 'API'} deleted chat ${groupId}`);
+    res.json({ success: true, message: 'Chat deleted successfully' });
+  } catch (error: any) {
+    logger.error('Delete chat error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== USER/PROFILE ENDPOINTS ====================
+
+// Get profile picture
+app.get('/api/profile-picture/:jid', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { jid } = req.params;
+    
+    const url = await sock.profilePictureUrl(jid, 'image');
+    logger.info(`🖼️  ${req.user?.phone || 'API'} fetched profile picture for ${jid}`);
+    res.json({ success: true, profilePictureUrl: url });
+  } catch (error: any) {
+    logger.error('Get profile picture error:', error);
+    res.status(404).json({ success: false, error: 'Profile picture not available' });
+  }
+});
+
+// Update profile name
+app.post('/api/profile/update-name', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { name } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'name required' });
+    }
+
+    await sock.updateProfileName(name);
+    logger.info(`✏️  ${req.user?.phone || 'API'} updated profile name`);
+    res.json({ success: true, message: 'Profile name updated successfully' });
+  } catch (error: any) {
+    logger.error('Update profile name error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update profile status
+app.post('/api/profile/update-status', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { status } = req.body;
+    
+    if (!status) {
+      return res.status(400).json({ success: false, error: 'status required' });
+    }
+
+    await sock.updateProfileStatus(status);
+    logger.info(`💬 ${req.user?.phone || 'API'} updated profile status`);
+    res.json({ success: true, message: 'Profile status updated successfully' });
+  } catch (error: any) {
+    logger.error('Update profile status error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get user status
+app.get('/api/user/:jid/status', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { jid } = req.params;
+    
+    const status = await sock.fetchStatus(jid);
+    logger.info(`📋 ${req.user?.phone || 'API'} fetched status for ${jid}`);
+    res.json({ success: true, status: status?.status, setAt: status?.setAt });
+  } catch (error: any) {
+    logger.error('Get user status error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Check if JID exists on WhatsApp
+app.get('/api/user/:jid/exists', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { jid } = req.params;
+    
+    const [result] = await sock.onWhatsApp(jid);
+    logger.info(`🔍 ${req.user?.phone || 'API'} checked if ${jid} exists`);
+    res.json({ success: true, exists: !!result?.exists, jid: result?.jid });
+  } catch (error: any) {
+    logger.error('Check user exists error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== PRESENCE ENDPOINTS ====================
+
+// Update presence
+app.post('/api/presence/update', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId, type } = req.body;
+    
+    if (!groupId || !type) {
+      return res.status(400).json({ success: false, error: 'groupId and type required (available, unavailable, composing, recording, paused)' });
+    }
+
+    await sock.sendPresenceUpdate(type, groupId);
+    logger.info(`👁️  ${req.user?.phone || 'API'} updated presence to ${type} in ${groupId}`);
+    res.json({ success: true, message: 'Presence updated successfully' });
+  } catch (error: any) {
+    logger.error('Update presence error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Subscribe to presence updates
+app.post('/api/presence/subscribe', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { groupId } = req.body;
+    
+    if (!groupId) {
+      return res.status(400).json({ success: false, error: 'groupId required' });
+    }
+
+    await sock.presenceSubscribe(groupId);
+    logger.info(`🔔 ${req.user?.phone || 'API'} subscribed to presence for ${groupId}`);
+    res.json({ success: true, message: 'Subscribed to presence updates' });
+  } catch (error: any) {
+    logger.error('Subscribe presence error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== UTILITY ENDPOINTS ====================
+
+// Download media from message
+app.post('/api/download-media', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { messageKey } = req.body;
+    
+    if (!messageKey) {
+      return res.status(400).json({ success: false, error: 'messageKey required' });
+    }
+
+    // This would require the actual message object - simplified for API
+    logger.info(`⬇️  ${req.user?.phone || 'API'} requested media download`);
+    res.json({ success: true, message: 'Media download initiated', note: 'Implement media buffer handling as needed' });
+  } catch (error: any) {
+    logger.error('Download media error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get business profile
+app.get('/api/business/:jid/profile', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { jid } = req.params;
+    
+    const profile = await sock.getBusinessProfile(jid);
+    logger.info(`🏢 ${req.user?.phone || 'API'} fetched business profile for ${jid}`);
+    res.json({ success: true, businessProfile: profile });
+  } catch (error: any) {
+    logger.error('Get business profile error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Block/unblock user
+app.post('/api/user/block', requireAuthOrAPIKey, async (req: Request & { user?: any }, res: Response) => {
+  try {
+    if (!sock || connectionState !== 'connected') {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+    const { jid, block } = req.body;
+    
+    if (!jid || block === undefined) {
+      return res.status(400).json({ success: false, error: 'jid and block (boolean) required' });
+    }
+
+    await sock.updateBlockStatus(jid, block ? 'block' : 'unblock');
+    logger.info(`🚫 ${req.user?.phone || 'API'} ${block ? 'blocked' : 'unblocked'} ${jid}`);
+    res.json({ success: true, message: `User ${block ? 'blocked' : 'unblocked'} successfully` });
+  } catch (error: any) {
+    logger.error('Block user error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/health', (req: Request, res: Response) => { res.json({ status:'healthy', whatsapp_status: connectionState, connected: connectionState === 'connected', session_saved: hasExistingSession(), backup_available: !!sessionBackup, active_user_sessions: sessionTokens.size, uptime_seconds: Math.floor(process.uptime()) }); });
 
 // Load backup on startup

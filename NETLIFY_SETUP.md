@@ -31,9 +31,11 @@ Add these variables:
 The netlify.toml is configured with:
 - **Base directory**: `whatsapp-service/frontend`
 - **Build command**: `npm run build`
-- **Publish directory**: `.` (current directory after build)
+- **Publish directory**: Automatically handled by `@netlify/plugin-nextjs`
 - **Node version**: 22.x
 - **Next.js Plugin**: Enabled for optimal deployment
+
+**Note**: The publish directory is intentionally not set in the config. The Next.js plugin automatically determines the correct output directory and requires that publish ≠ base.
 
 ## 🔍 Verify Deployment
 

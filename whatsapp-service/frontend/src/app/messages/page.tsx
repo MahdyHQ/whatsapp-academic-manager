@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useWhatsAppGroups } from '../../lib/hooks/use-whatsapp';
+import { useWhatsAppGroups, useGroupMessages } from '../../lib/hooks/use-whatsapp';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -14,6 +14,7 @@ import {
   Loader2,
   InboxIcon,
   Search,
+  RefreshCw,
 } from 'lucide-react';
 
 interface Message {
@@ -27,43 +28,22 @@ interface Message {
 export default function MessagesPage() {
   const { data: groupsData, isLoading: groupsLoading } = useWhatsAppGroups();
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [groupName, setGroupName] = useState('');
+  
+  // Use the hook to fetch messages for the selected group
+  const { 
+    data: messagesData, 
+    isLoading: loading, 
+    error: messagesError,
+    refetch 
+  } = useGroupMessages(selectedGroupId, 50);
 
   const groups = groupsData?.groups || [];
+  const messages = messagesData?.messages || [];
+  const groupName = messagesData?.group_name || messagesData?.groupName || 'Unknown Group';
+  const error = messagesError ? `Error loading messages: ${messagesError}` : '';
 
-  const fetchMessages = async (groupId: string) => {
-    if (!groupId) return;
-
-    setLoading(true);
-    setError('');
-    setMessages([]);
+  const handleGroupSelect = (groupId: string) => {
     setSelectedGroupId(groupId);
-
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/whatsapp/messages/${groupId}?limit=50`
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setMessages(data.messages || []);
-      setGroupName(data.group_name || 'Unknown Group');
-
-      if (data.messages.length === 0) {
-        setError('No messages found in this group');
-      }
-    } catch (err: any) {
-      setError(`Error: ${err.message}`);
-      console.error('Fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const formatPhone = (phone: string) => {
@@ -115,7 +95,7 @@ export default function MessagesPage() {
                     {groups.slice(0, 20).map((group : any) => (
                       <button
                         key={group.id}
-                        onClick={() => fetchMessages(group.id)}
+                        onClick={() => handleGroupSelect(group.id)}
                         className={`w-full text-left p-3 rounded-lg border transition-all ${
                           selectedGroupId === group.id
                             ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-200'
@@ -176,10 +156,11 @@ export default function MessagesPage() {
                 <CardContent className="py-12 text-center">
                   <p className="text-red-600">{error}</p>
                   <Button
-                    onClick={() => fetchMessages(selectedGroupId)}
+                    onClick={() => refetch()}
                     className="mt-4"
                     variant="outline"
                   >
+                    <RefreshCw className="w-4 h-4 mr-2" />
                     Retry
                   </Button>
                 </CardContent>
@@ -204,7 +185,7 @@ export default function MessagesPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                    {messages.map((message, index) => (
+                    {messages.map((message: Message, index: number) => (
                       <Card
                         key={message.id}
                         className="border-l-4 border-blue-500 hover:shadow-md transition-shadow"

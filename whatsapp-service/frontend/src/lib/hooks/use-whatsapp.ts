@@ -58,13 +58,12 @@ export function useGroupMessages(groupId: string | null, limit: number = 50) {
       if (!groupId) throw new Error('No group selected');
       return api.whatsapp.getMessages(groupId, limit);
     },
-    enabled: !!groupId, // Only fetch when groupId is set
+    enabled: !!groupId, // Only fetch when groupId is provided
     staleTime: 30000, // Cache for 30 seconds
     retry: 2,
     retryDelay: 1000,
   });
 }
-
 /**
  * Hook to send a message to a WhatsApp group
  * Automatically invalidates messages cache after sending
@@ -590,3 +589,151 @@ export function useUpdateProfile() {
     }),
   };
 }
+
+// ==================== ADMIN/UTILITY HOOKS ====================
+
+/**
+ * Hook to get QR code for WhatsApp connection
+ * Useful for admin pages or connection setup
+ * 
+ * @example
+ * const { data, isLoading, refetch } = useQRCode();
+ * if (data?.qr) {
+ *   <img src={data.qr} alt="QR Code" />
+ * }
+ */
+export function useQRCode() {
+  return useQuery({
+    queryKey: ['whatsapp-qr'],
+    queryFn: () => api.admin.getQRCode(),
+    refetchInterval: 5000, // Refresh QR every 5 seconds
+    staleTime: 0, // Always fetch fresh QR
+    retry: 2,
+  });
+}
+
+/**
+ * Hook to get session information
+ * Returns detailed session stats, backup status, connection info
+ * 
+ * @example
+ * const { data, isLoading } = useSessionInfo();
+ * console.log(data?.session?.file_count);
+ */
+export function useSessionInfo() {
+  return useQuery({
+    queryKey: ['session-info'],
+    queryFn: () => api.admin.getSessionInfo(),
+    staleTime: 30000, // Cache for 30 seconds
+    retry: 2,
+  });
+}
+
+/**
+ * Hook to request pairing code (alternative to QR)
+ * Admin only - requires x-api-key
+ * 
+ * @example
+ * const getPairingCode = useGetPairingCode();
+ * getPairingCode.mutate({ phone: '+201155547529' });
+ */
+export function useGetPairingCode() {
+  return useMutation({
+    mutationFn: (params: { phone: string }) => 
+      api.admin.getPairingCode(params.phone),
+    onSuccess: (data) => {
+      console.log('✅ Pairing code generated:', data.code);
+    },
+    onError: (error) => {
+      console.error('❌ Failed to generate pairing code:', error);
+    },
+  });
+}
+
+/**
+ * Hook to reset WhatsApp session
+ * Admin only - requires x-api-key
+ * WARNING: This will disconnect and require re-authentication
+ * 
+ * @example
+ * const resetSession = useResetSession();
+ * resetSession.mutate();
+ */
+export function useResetSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.admin.resetSession(),
+    onSuccess: () => {
+      console.log('✅ Session reset successfully');
+      // Invalidate all cached data
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-groups'] });
+      queryClient.invalidateQueries({ queryKey: ['session-info'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-qr'] });
+    },
+    onError: (error) => {
+      console.error('❌ Failed to reset session:', error);
+    },
+  });
+}
+
+/**
+ * Hook to add authorized phone (admin only)
+ * Requires x-api-key authentication
+ * 
+ * @example
+ * const addPhone = useAddAuthorizedPhone();
+ * addPhone.mutate({ phone: '+201155547529' });
+ */
+export function useAddAuthorizedPhone() {
+  return useMutation({
+    mutationFn: (params: { phone: string }) => 
+      api.auth.addAuthorizedPhone(params.phone),
+    onSuccess: (data) => {
+      console.log('✅ Phone added to authorized list:', data.phone);
+    },
+    onError: (error) => {
+      console.error('❌ Failed to add authorized phone:', error);
+    },
+  });
+}
+
+/**
+ * Hook to get list of authorized phones (admin only)
+ * Requires x-api-key authentication
+ * 
+ * @example
+ * const { data, isLoading } = useAuthorizedPhones();
+ * console.log(data?.phones); // Array of phone numbers
+ */
+export function useAuthorizedPhones() {
+  return useQuery({
+    queryKey: ['authorized-phones'],
+    queryFn: () => api.auth.getAuthorizedPhones(),
+    staleTime: 60000, // Cache for 1 minute
+    retry: 2,
+  });
+}
+
+/**
+ * Hook to get OTP for specific phone (admin only)
+ * Requires x-api-key authentication
+ * 
+ * @example
+ * const { data, isLoading, refetch } = useOTPForPhone('+201155547529');
+ * console.log(data?.code); // 6-digit OTP
+ */
+export function useOTPForPhone(phone: string | null) {
+  return useQuery({
+    queryKey: ['otp-for-phone', phone],
+    queryFn: () => {
+      if (!phone) throw new Error('Phone number required');
+      return api.auth.getOTPForPhone(phone);
+    },
+    enabled: !!phone,
+    staleTime: 10000, // Cache for 10 seconds
+    retry: 2,
+  });
+}
+

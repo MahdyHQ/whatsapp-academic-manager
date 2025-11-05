@@ -139,6 +139,35 @@ export const api = {
     getMe: async () => {
       return fetchWithAuth('/api/auth/me', {}, false); // Direct to Railway
     },
+
+    /**
+     * Add phone number to authorized list (admin only)
+     * Requires x-api-key authentication
+     * @param phone - Phone number in international format
+     */
+    addAuthorizedPhone: async (phone: string) => {
+      return fetchWithAuth('/api/auth/add-phone', {
+        method: 'POST',
+        body: JSON.stringify({ phone }),
+      }, false);
+    },
+
+    /**
+     * Get list of authorized phone numbers (admin only)
+     * Requires x-api-key authentication
+     */
+    getAuthorizedPhones: async () => {
+      return fetchWithAuth('/api/auth/authorized-phones', {}, false);
+    },
+
+    /**
+     * Get OTP for specific phone (admin only)
+     * Requires x-api-key authentication
+     * @param phone - Phone number to get OTP for
+     */
+    getOTPForPhone: async (phone: string) => {
+      return fetchWithAuth(`/api/auth/otp/${phone}`, {}, false);
+    },
   },
 
   // ==================== WHATSAPP ENDPOINTS ====================
@@ -700,6 +729,46 @@ export const api = {
      */
     getBusinessProfile: async (jid: string) => {
       return fetchWithAuth(`/api/business/${jid}/profile`, {}, false);
+    },
+  },
+
+  // ==================== ADMIN/UTILITY ENDPOINTS ====================
+  // Admin and utility endpoints for session management
+  admin: {
+    /**
+     * Get QR code for WhatsApp connection
+     * Returns QR code data URL and connection state
+     */
+    getQRCode: async () => {
+      return fetchWithAuth('/api/qr', {}, false);
+    },
+
+    /**
+     * Get pairing code for phone number (alternative to QR)
+     * Requires x-api-key authentication
+     * @param phone - Phone number in international format (e.g., +201155547529)
+     */
+    getPairingCode: async (phone: string) => {
+      return fetchWithAuth(`/api/pairing-code?phone=${encodeURIComponent(phone)}`, {}, false);
+    },
+
+    /**
+     * Reset WhatsApp session and trigger fresh connection
+     * Requires x-api-key authentication
+     * WARNING: This will disconnect current session and require re-authentication
+     */
+    resetSession: async () => {
+      return fetchWithAuth('/api/session/reset', {
+        method: 'POST',
+      }, false);
+    },
+
+    /**
+     * Get detailed session information
+     * Includes session stats, backup status, connection info, and auth details
+     */
+    getSessionInfo: async () => {
+      return fetchWithAuth('/api/session-info', {}, false);
     },
   },
 };

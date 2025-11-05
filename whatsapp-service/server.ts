@@ -243,12 +243,42 @@ async function connectWhatsApp(){
     const SYNC_FULL_HISTORY = process.env.SYNC_FULL_HISTORY === 'true';
     const MARK_ONLINE_ON_CONNECT = process.env.MARK_ONLINE_ON_CONNECT === 'true';
 
-    // Group metadata cache: prefer Redis
+    // Group metadata cache: prefer Redis when explicitly configured; otherwise use in-memory to avoid blocking startup
     let redisClient: any = null;
     let groupCacheIsRedis = false;
     const groupCache = new Map<string, any>();
 
-    async function initGroupCache(){ try { const { createClient } = await import('redis'); const redisUrl = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`; const opts:any = { url: redisUrl }; if (process.env.REDIS_PASSWORD) opts.password = process.env.REDIS_PASSWORD; redisClient = createClient(opts); redisClient.on('error', (e:any)=>{ logger.warn('Redis client error:', e && e.message ? e.message : e); }); await redisClient.connect(); groupCacheIsRedis = true; logger.info('✅ Connected to Redis for cachedGroupMetadata'); } catch (err) { logger.warn('⚠️  Redis not available for cachedGroupMetadata - falling back to in-memory cache'); logger.debug(err && err.message ? err.message : err); redisClient = null; groupCacheIsRedis = false; } }
+    async function initGroupCache(){
+      const hasExplicitRedis = !!(process.env.REDIS_URL || process.env.REDIS_HOST || process.env.ENABLE_REDIS === 'true');
+      if (!hasExplicitRedis) {
+        logger.info('ℹ️  Redis cache disabled (no REDIS_URL/REDIS_HOST/ENABLE_REDIS). Using in-memory cache.');
+        groupCacheIsRedis = false;
+        return;
+      }
+      try {
+        const { createClient } = await import('redis');
+        const redisUrl = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`;
+        const opts:any = { url: redisUrl };
+        if (process.env.REDIS_PASSWORD) opts.password = process.env.REDIS_PASSWORD;
+        redisClient = createClient(opts);
+        redisClient.on('error', (e:any)=>{ logger.warn('Redis client error:', e && e.message ? e.message : e); });
+
+        // Guard against hanging connect by timing out quickly and falling back
+        const timeoutMs = Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 2000);
+        await Promise.race([
+          redisClient.connect(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error(`Redis connect timeout after ${timeoutMs}ms`)), timeoutMs))
+        ]);
+        groupCacheIsRedis = true;
+        logger.info('✅ Connected to Redis for cachedGroupMetadata');
+      } catch (err:any) {
+        logger.warn('⚠️  Redis not available for cachedGroupMetadata - falling back to in-memory cache');
+        if (err && err.message) logger.warn(err.message);
+        try { if (redisClient) await redisClient.quit(); } catch {}
+        redisClient = null;
+        groupCacheIsRedis = false;
+      }
+    }
     await initGroupCache();
 
     sock = makeWASocket({

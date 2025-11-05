@@ -422,54 +422,75 @@ async function connectWhatsApp(){
 async function fetchMessagesFromWAWrapper(groupId: string, limit = 50) {
   if (!sock) throw new Error('WhatsApp socket not initialized');
   logger.info(`fetchMessagesFromWAWrapper: fetching messages for group=${groupId} limit=${limit}`);
-  async function tryCall(name: string, fn: () => Promise<any>) { logger.info(`fetchMessagesFromWAWrapper: attempting ${name}()`); try { const res = await fn(); const len = Array.isArray(res) ? res.length : (res && typeof res === 'object' && 'messages' in res ? (Array.isArray(res.messages) ? res.messages.length : 'non-array') : 'non-array-or-undefined'); logger.info(`fetchMessagesFromWAWrapper: ${name}() succeeded — result length: ${len}`); return res; } catch (err) { logger.error(`fetchMessagesFromWAWrapper: ${name}() threw: ${(err && (err as any).stack) ? (err as any).stack : err}`); return null; } }
+  
+  // Try the in-memory message store first (fastest)
+  if (messageStore.has(groupId)) {
+    const msgMap = messageStore.get(groupId);
+    if (msgMap && msgMap.size > 0) {
+      const msgs = Array.from(msgMap.values()).slice(-limit);
+      logger.info(`fetchMessagesFromWAWrapper: found ${msgs.length} messages in messageStore`);
+      if (msgs.length > 0) return msgs;
+    }
+  }
 
-  if (typeof sock.fetchMessagesFromWA === 'function') { const r = await tryCall('sock.fetchMessagesFromWA', () => sock.fetchMessagesFromWA(groupId, limit)); if (r) return Array.isArray(r) ? r : (r.messages || []); } else { logger.info('fetchMessagesFromWAWrapper: sock.fetchMessagesFromWA not available'); }
-  if (typeof sock.loadMessages === 'function') { const r = await tryCall('sock.loadMessages', () => sock.loadMessages(groupId, limit)); if (r) return Array.isArray(r) ? r : (r.messages || []); } else { logger.info('fetchMessagesFromWAWrapper: sock.loadMessages not available'); }
-  if (typeof sock.fetchMessages === 'function') { const r = await tryCall('sock.fetchMessages', () => sock.fetchMessages(groupId, limit)); if (r) return Array.isArray(r) ? r : (r.messages || []); } else { logger.info('fetchMessagesFromWAWrapper: sock.fetchMessages not available'); }
+  // Try Baileys 7.x fetchMessageHistory (the correct method for fetching message history)
+  if (typeof sock.fetchMessageHistory === 'function') {
+    try {
+      logger.info('fetchMessagesFromWAWrapper: attempting sock.fetchMessageHistory()');
+      // fetchMessageHistory requires a message key as anchor point
+      // We'll try to get the latest message key from the group
+      const messages = await sock.fetchMessageHistory(limit, { remoteJid: groupId, fromMe: false, id: '' }, undefined);
+      if (messages && messages.length > 0) {
+        logger.info(`fetchMessagesFromWAWrapper: fetchMessageHistory returned ${messages.length} messages`);
+        // Store messages for future quick access
+        messages.forEach(m => rememberMessage(m));
+        return messages;
+      }
+    } catch (err) {
+      logger.error('fetchMessagesFromWAWrapper: fetchMessageHistory threw:', err);
+    }
+  }
 
+  // Fallback: try to load from chat metadata if available
+  if (sock.store && typeof sock.groupMetadata === 'function') {
+    try {
+      logger.info('fetchMessagesFromWAWrapper: attempting to fetch via groupMetadata');
+      const metadata = await sock.groupMetadata(groupId);
+      if (metadata) {
+        logger.info(`fetchMessagesFromWAWrapper: found group metadata for ${metadata.subject}`);
+      }
+    } catch (err) {
+      logger.warn('fetchMessagesFromWAWrapper: groupMetadata call failed:', err);
+    }
+  }
+
+  // Last resort: check if sock has a store with messages
   if (sock.store && sock.store.messages) {
     logger.info('fetchMessagesFromWAWrapper: attempting in-memory store lookup');
     try {
       if (typeof sock.store.messages.get === 'function') {
         const chatMap = sock.store.messages.get(groupId);
         if (chatMap && (typeof chatMap.values === 'function')) {
-          const msgs = Array.from(chatMap.values()); logger.info(`fetchMessagesFromWAWrapper: store.get returned ${msgs.length} messages`); return msgs;
+          const msgs = Array.from(chatMap.values());
+          logger.info(`fetchMessagesFromWAWrapper: store.get returned ${msgs.length} messages`);
+          if (msgs.length > 0) return msgs;
         }
       }
-      if (sock.store.messages[groupId]) { const raw = sock.store.messages[groupId]; const msgs = Array.isArray(raw) ? raw : Object.values(raw || {}); logger.info(`fetchMessagesFromWAWrapper: store[index] returned ${msgs.length} messages`); return msgs; }
-      const collected: any[] = [];
-      if (typeof Object.entries === 'function') { for (const [chatId, container] of Object.entries(sock.store.messages)) { if (!chatId) continue; if (chatId === groupId || chatId.endsWith(groupId)) { const vals = Array.isArray(container) ? container : Object.values(container || {}); for (const v of vals) collected.push(v); } } }
-      if (collected.length) { logger.info(`fetchMessagesFromWAWrapper: collected ${collected.length} messages by scanning store entries`); return collected; }
-      logger.info('fetchMessagesFromWAWrapper: store present but no messages found for this group');
-    } catch (err) { logger.error('fetchMessagesFromWAWrapper: error reading store:', err && (err as any).stack ? (err as any).stack : err); }
-  } else { logger.info('fetchMessagesFromWAWrapper: no sock.store.messages available'); }
-
-  if (typeof sock.query === 'function') {
-    logger.info('fetchMessagesFromWAWrapper: attempting sock.query() as an active history fetch');
-    try {
-      const payload = { json: ['query', 'history', { jid: groupId, count: limit }] };
-      const result = await tryCall('sock.query(history)', () => sock.query(payload));
-      if (result) { if (Array.isArray(result)) return result; if (result.messages && Array.isArray(result.messages)) return result.messages; if (result[2] && Array.isArray(result[2])) return result[2]; }
-    } catch (err) { logger.error('fetchMessagesFromWAWrapper: sock.query fallback threw:', err && (err as any).stack ? (err as any).stack : err); }
-  } else { logger.info('fetchMessagesFromWAWrapper: sock.query not available'); }
-
-  if (typeof sock.sendNode === 'function') {
-    logger.info('fetchMessagesFromWAWrapper: attempting sock.sendNode() with IQ history request');
-    try {
-      const node = { tag: 'iq', attrs: { type: 'get', to: groupId }, content: [ { tag: 'history', attrs: { count: String(limit) } } ] };
-      const r = await tryCall('sock.sendNode(iq history)', () => sock.sendNode(node));
-      if (r && r.content) {
-        const msgs: any[] = [];
-        try { for (const c of r.content) { if (c.tag && (c.tag === 'message' || c.tag === 'm')) msgs.push(c); } } catch (e) {}
-        if (msgs.length) return msgs;
+      if (sock.store.messages[groupId]) {
+        const raw = sock.store.messages[groupId];
+        const msgs = Array.isArray(raw) ? raw : Object.values(raw || {});
+        logger.info(`fetchMessagesFromWAWrapper: store[index] returned ${msgs.length} messages`);
+        if (msgs.length > 0) return msgs;
       }
-    } catch (err) { logger.error('fetchMessagesFromWAWrapper: sock.sendNode fallback threw:', err && (err as any).stack ? (err as any).stack : err); }
-  } else { logger.info('fetchMessagesFromWAWrapper: sock.sendNode not available'); }
+    } catch (err) {
+      logger.error('fetchMessagesFromWAWrapper: error reading store:', err);
+    }
+  }
 
-  logger.error('fetchMessagesFromWAWrapper: no method available to fetch messages from WhatsApp socket — returning empty array');
+  logger.warn(`fetchMessagesFromWAWrapper: no messages found for group ${groupId}. Messages may not be cached yet. Try sending a message to the group first.`);
   return [];
 }
+
 
 // PHONE AUTH ENDPOINTS
 app.post('/api/auth/request-otp', async (req: Request, res: Response) => {

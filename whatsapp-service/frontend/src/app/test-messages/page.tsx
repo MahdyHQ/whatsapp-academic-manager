@@ -62,7 +62,7 @@ function TestMessagesInner() {
       setGroupName((data && (data.group_name || data.groupName)) || 'Unknown Group');
 
       if (!msgs || msgs.length === 0) {
-        setError('No messages found in this group');
+        setError('No messages found in this group. Note: Messages are only available after WhatsApp has synced them. Try sending a message to the group first, or wait for new messages to arrive.');
       }
     } catch (err: any) {
       if (err instanceof APIError) {

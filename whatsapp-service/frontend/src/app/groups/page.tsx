@@ -22,6 +22,8 @@ import {
   Crown,
 } from 'lucide-react';
 
+type Group = { id: string; name: string; participants: number };
+
 export default function GroupsPage() {
   const { data, isLoading, error, refetch } = useWhatsAppGroups();
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,16 +33,16 @@ export default function GroupsPage() {
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [filterSize, setFilterSize] = useState<'all' | 'small' | 'medium' | 'large'>('all');
 
-  const groups = data?.groups || [];
+  const groups: Group[] = (data?.groups as Group[]) || [];
 
   // Filter and sort groups
   const filteredGroups = useMemo(() => {
-    let filtered = groups.filter((group) =>
+    let filtered = groups.filter((group: Group) =>
       group.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     if (filterSize !== 'all') {
-      filtered = filtered.filter((group) => {
+      filtered = filtered.filter((group: Group) => {
         if (filterSize === 'small') return group.participants < 50;
         if (filterSize === 'medium') return group.participants >= 50 && group.participants < 200;
         if (filterSize === 'large') return group.participants >= 200;
@@ -48,7 +50,7 @@ export default function GroupsPage() {
       });
     }
 
-    filtered.sort((a, b) => {
+    filtered.sort((a: Group, b: Group) => {
       const aValue = sortBy === 'name' ? a.name : a.participants;
       const bValue = sortBy === 'name' ? b.name : b.participants;
 
@@ -68,9 +70,9 @@ export default function GroupsPage() {
 
   // Statistics
   const stats = useMemo(() => {
-    const totalMembers = groups.reduce((sum, g) => sum + g.participants, 0);
+    const totalMembers = groups.reduce((sum: number, g: Group) => sum + g.participants, 0);
     const avgMembers = groups.length > 0 ? Math.round(totalMembers / groups.length) : 0;
-    const largestGroup = groups.reduce((max, g) => (g.participants > max ? g.participants : max), 0);
+    const largestGroup = groups.reduce((max: number, g: Group) => (g.participants > max ? g.participants : max), 0);
 
     return {
       total: groups.length,
@@ -94,7 +96,7 @@ export default function GroupsPage() {
     if (selectedGroups.size === filteredGroups.length) {
       setSelectedGroups(new Set());
     } else {
-      setSelectedGroups(new Set(filteredGroups.map((g) => g.id)));
+  setSelectedGroups(new Set(filteredGroups.map((g: Group) => g.id)));
     }
   };
 
@@ -342,7 +344,7 @@ export default function GroupsPage() {
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredGroups.map((group) => {
+            {filteredGroups.map((group: Group) => {
               const size = getGroupSize(group.participants);
               const isSelected = selectedGroups.has(group.id);
 
@@ -389,7 +391,7 @@ export default function GroupsPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredGroups.map((group) => {
+            {filteredGroups.map((group: Group) => {
               const size = getGroupSize(group.participants);
               const isSelected = selectedGroups.has(group.id);
 

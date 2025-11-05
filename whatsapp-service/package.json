@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && cp ./config.mjs ./dist/config.mjs || true",
     "start": "node dist/server.js",
     "postinstall": "npm run build",
     "dev": "nodemon --watch server.ts --exec \"ts-node server.ts\"",

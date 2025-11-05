@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,7 @@ interface Message {
   date: string;
 }
 
-export default function TestMessagesPage() {
+function TestMessagesInner() {
   const searchParams = useSearchParams();
   const [groupId, setGroupId] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -280,5 +281,13 @@ export default function TestMessagesPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function TestMessagesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 p-8">Loading…</div>}>
+      <TestMessagesInner />
+    </Suspense>
   );
 }

@@ -15,3 +15,9 @@ qr.png
 
 # Logs
 *.log
+
+# Build output
+dist/
+
+# Session backup (sensitive)
+session-backup.json

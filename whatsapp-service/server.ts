@@ -4,7 +4,9 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   Browsers,
   makeCacheableSignalKeyStore,
-  type CacheStore
+  type CacheStore,
+  type WAMessageKey,
+  type WAMessageContent
 } from '@whiskeysockets/baileys';
 import NodeCache from '@cacheable/node-cache';
 import express, { Request, Response, NextFunction } from 'express';
@@ -475,19 +477,22 @@ async function connectWhatsApp(){
       // cache for retry counters (helps delivery reliability)
       msgRetryCounterCache,
       // message retriever for retries & poll vote decryption
-      getMessage: async (key: any) => {
+      getMessage: async (key: WAMessageKey): Promise<WAMessageContent | undefined> => {
         try {
           const jid = key?.remoteJid;
           const id = key?.id;
           if (jid && id) {
             const chat = messageStore.get(jid);
             const m = chat?.get(id);
-            if (m?.message) return m.message;
+            if (m?.message) {
+              return m.message;
+            }
           }
         } catch (err: any) {
           BAILEYS_LOGGER.warn('getMessage() error', err?.message || err);
         }
-        return { conversation: 'Message not available' };
+        // Return undefined instead of a fallback message for proper Baileys handling
+        return undefined;
       },
       syncFullHistory: SYNC_FULL_HISTORY,
       markOnlineOnConnect: MARK_ONLINE_ON_CONNECT,
@@ -542,22 +547,138 @@ async function connectWhatsApp(){
       };
     }
 
-    // remember messages for getMessage support
-    sock.ev.on('messages.upsert', (ev: any) => {
-      try { for (const m of ev?.messages || []) rememberMessage(m); } catch {}
+    // remember messages for getMessage support & process events efficiently
+    sock.ev.process(async (events) => {
+      // Handle connection updates
+      if (events['connection.update']) {
+        const update = events['connection.update'];
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+          qrCodeData = qr;
+          logger.info('📱 QR Code generated - Available at /qr endpoint');
+          connectionState = 'qr_ready';
+        }
+        
+        if (connection === 'close') {
+          const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
+          const errorMessage = lastDisconnect?.error?.message;
+          
+          logger.warn('⚠️  Connection closed');
+          logger.warn(`   Status Code: ${statusCode}`);
+          logger.warn(`   Error: ${errorMessage || 'Unknown'}`);
+          logger.warn(`   Should reconnect: ${shouldReconnect}`);
+          
+          connectionState = 'disconnected';
+          connectedPhone = null;
+          
+          if (statusCode === DisconnectReason.loggedOut) {
+            logger.error('🚫 Logged out from device - clearing all session data');
+            qrCodeData = null;
+            sessionRestored = false;
+            if (fs.existsSync(AUTH_DIR)) {
+              logger.info('🗑️  Clearing auth directory...');
+              fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+              ensureAuthDir();
+            }
+            clearSessionBackup();
+            connectionAttempts = 0;
+          }
+          
+          if (shouldReconnect && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
+            const delay = Math.min(3000 * connectionAttempts, 30000);
+            logger.info(`🔄 Reconnecting in ${delay/1000} seconds...`);
+            setTimeout(() => connectWhatsApp(), delay);
+          } else if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            logger.error('❌ Max reconnection attempts reached');
+            logger.error('   💡 Visit /qr to scan QR code again');
+          } else {
+            logger.error('🚫 Not reconnecting - scan QR code at /qr');
+          }
+        } else if (connection === 'open') {
+          logger.info('✅ WhatsApp Connected Successfully!');
+          connectionState = 'connected';
+          connectedPhone = sock.user?.id?.split(':')[0];
+          qrCodeData = null;
+          connectionAttempts = 0;
+          setTimeout(() => createSessionBackup(), 2000);
+          
+          if (sessionRestored) {
+            logger.info('💾 Session restored from backup');
+          } else {
+            logger.info('🆕 New session created');
+          }
+          logger.info(`📱 Connected as: +${connectedPhone}`);
+        } else if (connection === 'connecting') {
+          logger.info('🔗 Establishing connection...');
+        }
+      }
+
+      // Handle credentials update
+      if (events['creds.update']) {
+        await saveCreds();
+        logger.info('💾 Session credentials updated');
+        setTimeout(() => createSessionBackup(), 1000);
+      }
+
+      // Handle messages upsert
+      if (events['messages.upsert']) {
+        const { messages } = events['messages.upsert'];
+        try {
+          for (const m of messages || []) {
+            rememberMessage(m);
+          }
+        } catch (err: any) {
+          logger.warn('Error remembering messages:', err?.message || err);
+        }
+      }
+
+      // Handle LID mapping updates
+      if (events['lid-mapping.update']) {
+        try {
+          const update = events['lid-mapping.update'];
+          logger.info('🔄 lid-mapping.update event received');
+          logger.debug({ update });
+          
+          const store = sock.signalRepository?.lidMapping;
+          if (store) {
+            if (Array.isArray(update) && typeof store.storeLIDPNMappings === 'function') {
+              store.storeLIDPNMappings(update);
+            } else if (update && typeof store.storeLIDPNMapping === 'function') {
+              store.storeLIDPNMapping(update);
+            }
+          }
+        } catch (err: any) {
+          logger.warn('Failed handling lid-mapping.update:', err?.message || err);
+        }
+      }
     });
 
-    sock.ev.on('connection.update', async (update:any)=>{ const { connection, lastDisconnect, qr } = update; if (qr) { qrCodeData = qr; logger.info('📱 QR Code generated - Available at /qr endpoint'); connectionState = 'qr_ready'; } if (connection === 'close') { const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut; const statusCode = lastDisconnect?.error?.output?.statusCode; const errorMessage = lastDisconnect?.error?.message; logger.warn('⚠️  Connection closed'); logger.warn(`   Status Code: ${statusCode}`); logger.warn(`   Error: ${errorMessage || 'Unknown'}`); logger.warn(`   Should reconnect: ${shouldReconnect}`); connectionState = 'disconnected'; connectedPhone = null; if (statusCode === DisconnectReason.loggedOut) { logger.error('🚫 Logged out from device - clearing all session data'); qrCodeData = null; sessionRestored = false; if (fs.existsSync(AUTH_DIR)) { logger.info('🗑️  Clearing auth directory...'); fs.rmSync(AUTH_DIR, { recursive: true, force: true }); ensureAuthDir(); } clearSessionBackup(); connectionAttempts = 0; } if (shouldReconnect && connectionAttempts < MAX_RECONNECT_ATTEMPTS) { const delay = Math.min(3000 * connectionAttempts, 30000); logger.info(`🔄 Reconnecting in ${delay/1000} seconds...`); setTimeout(()=>connectWhatsApp(), delay); } else if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) { logger.error('❌ Max reconnection attempts reached'); logger.error('   💡 Visit /qr to scan QR code again'); } else { logger.error('🚫 Not reconnecting - scan QR code at /qr'); } } else if (connection === 'open') { logger.info('✅ WhatsApp Connected Successfully!'); connectionState = 'connected'; connectedPhone = sock.user?.id?.split(':')[0]; qrCodeData = null; connectionAttempts = 0; setTimeout(()=>createSessionBackup(), 2000); if (sessionRestored) { logger.info('💾 Session restored from backup'); } else { logger.info('🆕 New session created'); } logger.info(`📱 Connected as: +${connectedPhone}`); } else if (connection === 'connecting') { logger.info('🔗 Establishing connection...'); } });
-
-    sock.ev.on('creds.update', async ()=>{ await saveCreds(); logger.info('💾 Session credentials updated'); setTimeout(()=>createSessionBackup(), 1000); });
-
-    // LID mapping handlers
+    // Setup LID mapping helper functions
     try {
       const lidStore = sock.signalRepository?.lidMapping;
-      if (lidStore) { logger.info('🔁 LID mapping store available on socket'); sock.getLIDForPN = async (pn:any) => { if (typeof lidStore.getLIDForPN === 'function') return lidStore.getLIDForPN(pn); return null; }; sock.getPNForLID = async (lid:any) => { if (typeof lidStore.getPNForLID === 'function') return lidStore.getPNForLID(lid); return null; }; } else { logger.info('ℹ️  No lid-mapping store available on this socket'); }
-
-      sock.ev.on('lid-mapping.update', async (update:any)=>{ try { logger.info('🔄 lid-mapping.update event received'); logger.debug({ update }); const store = sock.signalRepository?.lidMapping; if (store) { if (Array.isArray(update) && typeof store.storeLIDPNMappings === 'function') { store.storeLIDPNMappings(update); } else if (update && typeof store.storeLIDPNMapping === 'function') { store.storeLIDPNMapping(update); } } } catch (err) { logger.warn('Failed handling lid-mapping.update:', err && err.message ? err.message : err); } });
-    } catch (err) { logger.debug('Could not attach lid-mapping helpers:', err && err.message ? err.message : err); }
+      if (lidStore) {
+        logger.info('🔁 LID mapping store available on socket');
+        // Add helper functions to socket
+        sock.getLIDForPN = async (pn: any) => {
+          if (typeof lidStore.getLIDForPN === 'function') {
+            return lidStore.getLIDForPN(pn);
+          }
+          return null;
+        };
+        sock.getPNForLID = async (lid: any) => {
+          if (typeof lidStore.getPNForLID === 'function') {
+            return lidStore.getPNForLID(lid);
+          }
+          return null;
+        };
+      } else {
+        logger.info('ℹ️  No lid-mapping store available on this socket');
+      }
+    } catch (err: any) {
+      logger.debug('Could not attach lid-mapping helpers:', err?.message || err);
+    }
 
     // Ensure redis closes on process exit
     process.on('exit', async ()=>{ try { if (redisClient) await redisClient.quit(); } catch (e) { logger.warn('Error closing Redis client on exit', e && e.message ? e.message : e); } });

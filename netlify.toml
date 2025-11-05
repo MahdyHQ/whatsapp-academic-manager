@@ -8,9 +8,9 @@
   # Build command from package.json
   command = "npm run build"
   
-  # Publish directory relative to base (not absolute from repo root)
-  # The @netlify/plugin-nextjs outputs to .netlify folder
-  publish = ".netlify"
+  # Publish directory points to Next.js build output
+  # The @netlify/plugin-nextjs processes this .next folder
+  publish = ".next"
 
 # Environment variables (configure these in Netlify UI for security)
 [build.environment]

@@ -229,3 +229,252 @@ export function getMessageTypeBadgeColor(messageType: string): string {
   };
   return colors[messageType] || 'bg-gray-100 text-gray-700';
 }
+
+// ==================== ADVANCED FEATURES UTILITIES ====================
+
+/**
+ * Format privacy setting value to readable text
+ * @param value - Privacy value
+ * @returns Readable text
+ */
+export function formatPrivacyValue(value: string): string {
+  const values: Record<string, string> = {
+    all: 'Everyone',
+    contacts: 'My Contacts',
+    contact_blacklist: 'My Contacts Except...',
+    none: 'Nobody',
+  };
+  return values[value] || value;
+}
+
+/**
+ * Format privacy setting name to readable text
+ * @param setting - Privacy setting name
+ * @returns Readable text
+ */
+export function formatPrivacySetting(setting: string): string {
+  const settings: Record<string, string> = {
+    last: 'Last Seen',
+    online: 'Online Status',
+    profile: 'Profile Photo',
+    status: 'Status/About',
+    readreceipts: 'Read Receipts',
+    groupadd: 'Groups',
+  };
+  return settings[setting] || setting;
+}
+
+/**
+ * Format disappearing message duration to readable text
+ * @param seconds - Duration in seconds
+ * @returns Readable duration (e.g., "24 hours", "7 days", "Off")
+ */
+export function formatDisappearingDuration(seconds: number): string {
+  if (seconds === 0) return 'Off';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)} days`;
+  return `${Math.floor(seconds / 604800)} weeks`;
+}
+
+/**
+ * Get presence type display name
+ * @param type - Presence type
+ * @returns Display name
+ */
+export function getPresenceDisplayName(type: string): string {
+  const types: Record<string, string> = {
+    composing: 'Typing...',
+    recording: 'Recording...',
+    paused: 'Online',
+    available: 'Available',
+    unavailable: 'Offline',
+  };
+  return types[type] || type;
+}
+
+/**
+ * Get presence type icon
+ * @param type - Presence type
+ * @returns Icon name
+ */
+export function getPresenceIcon(type: string): string {
+  const icons: Record<string, string> = {
+    composing: 'MessageCircle',
+    recording: 'Mic',
+    paused: 'CheckCircle',
+    available: 'CheckCircle',
+    unavailable: 'Circle',
+  };
+  return icons[type] || 'Circle';
+}
+
+/**
+ * Format broadcast recipient count
+ * @param count - Number of recipients
+ * @returns Formatted text (e.g., "5 recipients", "1 recipient")
+ */
+export function formatRecipientCount(count: number): string {
+  return count === 1 ? '1 recipient' : `${count} recipients`;
+}
+
+/**
+ * Validate newsletter ID format
+ * @param newsletterId - Newsletter ID to validate
+ * @returns true if valid
+ */
+export function isValidNewsletterID(newsletterId: string): boolean {
+  return /^[0-9]+@newsletter$/.test(newsletterId);
+}
+
+/**
+ * Format connection state to readable status
+ * @param state - Connection state
+ * @returns Readable status with color class
+ */
+export function formatConnectionState(state: string): { text: string; color: string } {
+  const states: Record<string, { text: string; color: string }> = {
+    open: { text: 'Connected', color: 'bg-green-100 text-green-700' },
+    connecting: { text: 'Connecting...', color: 'bg-yellow-100 text-yellow-700' },
+    close: { text: 'Disconnected', color: 'bg-red-100 text-red-700' },
+  };
+  return states[state] || { text: state, color: 'bg-gray-100 text-gray-700' };
+}
+
+/**
+ * Format bytes per second to readable speed
+ * @param bytesPerSecond - Speed in bytes per second
+ * @returns Formatted speed (e.g., "1.5 MB/s")
+ */
+export function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond === 0) return '0 B/s';
+  
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+  
+  return `${parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+/**
+ * Parse poll options from text
+ * @param text - Text with options (one per line or comma-separated)
+ * @returns Array of poll options
+ */
+export function parsePollOptions(text: string): string[] {
+  // Try splitting by newlines first
+  let options = text.split('\n').map(opt => opt.trim()).filter(opt => opt.length > 0);
+  
+  // If only one option, try splitting by commas
+  if (options.length === 1) {
+    options = text.split(',').map(opt => opt.trim()).filter(opt => opt.length > 0);
+  }
+  
+  return options;
+}
+
+/**
+ * Validate poll options
+ * @param options - Array of poll options
+ * @returns Validation result with error message if invalid
+ */
+export function validatePollOptions(options: string[]): { valid: boolean; error?: string } {
+  if (options.length < 2) {
+    return { valid: false, error: 'Poll must have at least 2 options' };
+  }
+  if (options.length > 12) {
+    return { valid: false, error: 'Poll cannot have more than 12 options' };
+  }
+  if (options.some(opt => opt.length === 0)) {
+    return { valid: false, error: 'Poll options cannot be empty' };
+  }
+  if (options.some(opt => opt.length > 100)) {
+    return { valid: false, error: 'Poll options cannot exceed 100 characters' };
+  }
+  return { valid: true };
+}
+
+/**
+ * Format group settings to readable text
+ * @param announce - Only admins can send messages
+ * @param locked - Only admins can edit group info
+ * @returns Formatted text
+ */
+export function formatGroupSettings(announce: boolean, locked: boolean): string {
+  const settings: string[] = [];
+  if (announce) settings.push('Admins only messaging');
+  if (locked) settings.push('Admins only info');
+  return settings.length > 0 ? settings.join(', ') : 'Open group';
+}
+
+/**
+ * Get media type from URL or filename
+ * @param urlOrFilename - URL or filename
+ * @returns Media type ('image' | 'video' | 'audio' | 'document')
+ */
+export function getMediaTypeFromUrl(urlOrFilename: string): 'image' | 'video' | 'audio' | 'document' {
+  const ext = urlOrFilename.toLowerCase().split('.').pop() || '';
+  
+  const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+  const videoExts = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm'];
+  const audioExts = ['mp3', 'wav', 'ogg', 'aac', 'm4a', 'flac'];
+  
+  if (imageExts.includes(ext)) return 'image';
+  if (videoExts.includes(ext)) return 'video';
+  if (audioExts.includes(ext)) return 'audio';
+  return 'document';
+}
+
+/**
+ * Format story/status expiry time
+ * @param expiryTimestamp - Unix timestamp when story expires
+ * @returns Formatted time remaining (e.g., "23h left", "5m left")
+ */
+export function formatStoryExpiry(expiryTimestamp: number): string {
+  const now = Date.now();
+  const remaining = expiryTimestamp - now;
+  
+  if (remaining <= 0) return 'Expired';
+  
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+  
+  if (hours > 0) return `${hours}h left`;
+  return `${minutes}m left`;
+}
+
+/**
+ * Validate media URL
+ * @param url - URL to validate
+ * @returns true if valid HTTP/HTTPS URL
+ */
+export function isValidMediaUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Format location coordinates
+ * @param latitude - Latitude coordinate
+ * @param longitude - Longitude coordinate
+ * @returns Formatted coordinates (e.g., "40.7128° N, 74.0060° W")
+ */
+export function formatCoordinates(latitude: number, longitude: number): string {
+  const latDir = latitude >= 0 ? 'N' : 'S';
+  const lonDir = longitude >= 0 ? 'E' : 'W';
+  return `${Math.abs(latitude).toFixed(4)}° ${latDir}, ${Math.abs(longitude).toFixed(4)}° ${lonDir}`;
+}
+
+/**
+ * Get Google Maps URL for coordinates
+ * @param latitude - Latitude coordinate
+ * @param longitude - Longitude coordinate
+ * @returns Google Maps URL
+ */
+export function getGoogleMapsUrl(latitude: number, longitude: number): string {
+  return `https://www.google.com/maps?q=${latitude},${longitude}`;
+}

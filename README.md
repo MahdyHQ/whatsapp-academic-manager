@@ -1070,18 +1070,38 @@ cd whatsapp-service-standalone
 
 # This repo contains:
 # - WhatsApp service only (no backend/frontend coupling)
-# - Railway.json for direct deployment
-# - Complete documentation
+# - Complete documentation suite (13 files)
 # - Independent git history
+# - Professional deployment guides
 ```
+
+**Documentation Available:**
+- [API Documentation](https://github.com/MahdyHQ/whatsapp-service-standalone/blob/main/docs/API_DOCUMENTATION.md) - Complete API reference with 40+ endpoints
+- [Deployment Guide](https://github.com/MahdyHQ/whatsapp-service-standalone/blob/main/docs/DEPLOYMENT_GUIDE.md) - Railway, Docker, AWS, Azure, GCP, VPS
+- [Troubleshooting](https://github.com/MahdyHQ/whatsapp-service-standalone/blob/main/docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [FAQ](https://github.com/MahdyHQ/whatsapp-service-standalone/blob/main/docs/FAQ.md) - Frequently asked questions
+- [Contributing](https://github.com/MahdyHQ/whatsapp-service-standalone/blob/main/docs/CONTRIBUTING.md) - How to contribute
+- [Changelog](https://github.com/MahdyHQ/whatsapp-service-standalone/blob/main/docs/CHANGELOG.md) - Version history (v1.0.0)
+
+**Key Features:**
+- 📦 **40+ API Endpoints**: Send messages, broadcast, stories, groups, privacy controls
+- 🚀 **Advanced Baileys Features**: Newsletter management, message history sync, disappearing messages
+- 🔒 **Security**: API key auth, phone authorization, rate limiting
+- 📊 **Monitoring**: Health checks, statistics, connection status
+- 🎨 **Modern UI**: WhatsApp-themed QR code and login pages
+- 📝 **Comprehensive Docs**: 120KB+ of documentation
 
 **Benefits:**
 - Faster deploys (smaller codebase)
-- Independent versioning
+- Independent versioning (currently v1.0.0)
 - Can connect multiple frontends
 - Easier to maintain
+- Professional documentation structure
+- Active development with roadmap
 
-See `C:\Users\asd\Documents\GitHub\whatsapp-service-standalone\` for details.
+**Deployment URL:** https://whatsapp-service-standalone-production.up.railway.app/
+
+See [standalone repository](https://github.com/MahdyHQ/whatsapp-service-standalone) for complete documentation.
 
 ---
 

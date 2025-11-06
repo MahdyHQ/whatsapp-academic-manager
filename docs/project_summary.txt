@@ -352,6 +352,8 @@ Key Endpoints (WhatsApp Service):
     - GET /health                         --> Health check
     - GET /api/health                     --> API health check
     - GET /connection-state               --> WhatsApp connection status
+    - GET /api/stats                      --> Service statistics
+    - GET /api/session-info               --> Session information
   
   Authentication & QR:
     - POST /connect                       --> Initialize WhatsApp connection
@@ -359,25 +361,60 @@ Key Endpoints (WhatsApp Service):
     - POST /request-otp                   --> Request OTP for phone auth
     - POST /verify-otp                    --> Verify OTP code
     - POST /logout                        --> Disconnect WhatsApp
+    - POST /api/session/reset             --> Reset session
   
-  Messaging:
+  Messaging (Basic):
     - POST /send-message                  --> Send text message
+    - POST /api/send                      --> Send text message (alternative)
     - POST /send-image                    --> Send image with caption
+    - POST /api/send-media                --> Send media (image, video, audio, document)
     - POST /send-audio                    --> Send audio message
     - POST /send-video                    --> Send video with caption
     - POST /send-document                 --> Send document/file
+    - POST /api/send-contact              --> Send contact (vCard)
+    - POST /api/send-location             --> Send location
+    - POST /api/send-reaction             --> React to message with emoji
+    - POST /api/send-reply                --> Reply to specific message
+    - POST /api/edit-message              --> Edit sent message
+    - POST /api/delete-message            --> Delete sent message
+  
+  Messaging (Advanced):
+    - POST /api/send-broadcast            --> Send to multiple recipients
+    - POST /api/send-story                --> Post WhatsApp Story/Status
+    - POST /api/request-placeholder-resend --> Resend failed/encrypted messages
+    - POST /api/fetch-history             --> Fetch message history on-demand
+    - POST /api/broadcast/:listId         --> Manage broadcast lists
+  
+  Newsletter Management:
+    - POST /api/newsletter/follow         --> Subscribe to newsletter
+    - POST /api/newsletter/unfollow       --> Unsubscribe from newsletter
+    - GET /api/newsletter/:jid/metadata   --> Get newsletter metadata
+  
+  Privacy & Settings:
+    - POST /api/privacy/update            --> Update privacy settings
+    - GET /api/privacy/settings           --> Get current privacy settings
+    - POST /api/disappearing/set-default  --> Set default disappearing message timer
+    - GET /api/blocklist                  --> Get blocked contacts
+  
+  Profile & Account:
+    - POST /api/profile/update-picture    --> Update profile picture
+    - GET /api/profile/picture            --> Get profile picture
+    - POST /api/profile/update-status     --> Update status message
   
   Groups & Contacts:
     - GET /groups                         --> List all WhatsApp groups
+    - GET /api/groups                     --> List all WhatsApp groups (alternative)
     - GET /group/:groupId/messages        --> Fetch group messages
     - GET /contacts                       --> List all contacts
+    - POST /api/group/invite              --> Get group invite link
+    - POST /api/group/accept-invite       --> Accept group invite
   
   Admin (requires x-api-key):
     - GET /admin/stats                    --> Service statistics
     - POST /admin/restart                 --> Restart WhatsApp connection
     - DELETE /admin/session               --> Clear session data
 
-  See whatsapp-service/API_DOCUMENTATION.md for complete API reference
+  Total: 40+ documented endpoints (see docs/API_DOCUMENTATION.md for complete reference)
 
 Authentication:
   - API Key: x-api-key header (required for admin endpoints)
@@ -543,26 +580,80 @@ Standalone WhatsApp Service:
   Location: C:\Users\asd\Documents\GitHub\whatsapp-service-standalone
   Repository: https://github.com/MahdyHQ/whatsapp-service-standalone
   Purpose: Independent deployment of WhatsApp service without monorepo
+  Version: 1.0.0 (Released: 2025-11-06)
+  
   Configuration:
     - nixpacks.toml for native Node.js 24 deployment
     - Self-contained with all dependencies
     - Separate git repository
     - Independent deploy pipeline
+    - Professional documentation structure (docs/ folder)
   
   Deployment URL: https://whatsapp-service-standalone-production.up.railway.app/
   
-  Key Changes:
-    - Updated package.json repository URLs
-    - Fixed config.mjs BAILEYS_README_PATH to local file
-    - Included README-Baileys.md in standalone repo
-    - Added RAILWAY_DEPLOYMENT.md guide
-    - Added nixpacks.toml to specify Node.js 24
+  Documentation Structure (docs/):
+    - README.md (7.9KB)                     --> Documentation index
+    - API_DOCUMENTATION.md (14.2KB)         --> Complete API reference (40+ endpoints)
+    - DEPLOYMENT_GUIDE.md (18.1KB)          --> All deployment options (Railway, Docker, AWS, Azure, GCP, VPS)
+    - TROUBLESHOOTING.md (17.2KB)           --> Common issues and solutions
+    - FAQ.md (16.2KB)                       --> Frequently asked questions
+    - CONTRIBUTING.md (13.6KB)              --> Contribution guidelines
+    - CHANGELOG.md (6.3KB)                  --> Version history and roadmap
+    - RAILWAY_DEPLOYMENT.md (4.2KB)         --> Railway-specific quick guide
+    - DEPLOYMENT.md (8.3KB)                 --> Alternative deployment instructions
+    - INDEPENDENCE.md (5.9KB)               --> Architecture and service independence
+    - SEPARATION_SUMMARY.md (4.7KB)         --> Separation from monorepo details
+    - README-Baileys.md (45.2KB)            --> Baileys library documentation
+    - example.ts (8.2KB)                    --> Example TypeScript code
+  
+  Total Documentation: ~120KB across 13 files
+  
+  Key Features (v1.0.0):
+    - 40+ API endpoints for WhatsApp operations
+    - Advanced Baileys features:
+      * Message placeholder resend
+      * Message history sync
+      * Broadcast messaging
+      * WhatsApp Stories/Status
+      * Newsletter management
+      * Privacy controls
+      * Disappearing messages
+      * Profile management
+      * Group operations
+      * Blocklist management
+    - Security features:
+      * API key authentication
+      * Phone number authorization
+      * Rate limiting (OTP endpoints)
+    - Monitoring:
+      * Health checks
+      * Connection status
+      * Service statistics
+    - UI:
+      * WhatsApp-themed QR code page
+      * Professional login page
+      * Modern 2025 styling
+  
+  Build Configuration:
+    - TypeScript 5.9+ compilation to ES2022
+    - Windows-compatible build script (no Unix commands)
+    - example.ts excluded from build (tsconfig.json)
+    - config.mjs copied to dist/ during build
+    - Node.js >= 24.11.0 required
+    - npm >= 11.6.2 required
   
   Deployment:
     - Push to separate GitHub repository
     - Connect to Railway
     - Railway auto-detects Node.js 24 via nixpacks.toml
     - No Docker required (faster builds)
+    - Auto-deploy on push to main branch
+    - Environment variables set in Railway dashboard
+  
+  Roadmap:
+    - v1.1.0 (Q1 2025): Group creation/management, enhanced error handling, message queue
+    - v1.2.0 (Q2 2025): Multi-device support, advanced webhook filters, scheduled messages
+    - v2.0.0 (Q3 2025): API redesign, GraphQL option, WebSocket updates, plugin system
 
 Monorepo Structure:
   - Main repo contains: Backend, WhatsApp Service, Frontend
@@ -612,13 +703,76 @@ CORS:
 -------------------------
 
 Internal Documentation:
-  - README.md                           --> Main project overview
-  - README-Baileys.md                   --> Baileys library documentation
-  - whatsapp-service/API_DOCUMENTATION.md --> Complete API reference
-  - whatsapp-service/frontend/README.md --> Frontend documentation
-  - WHATSAPP_MESSAGE_FETCHING_GUIDE.md  --> Message fetching guide
-  - NETLIFY_SETUP.md                    --> Netlify deployment guide
-  - Notes                               --> Development notes
+  Main Project (Academic Manager):
+    - README.md                           --> Main project overview
+    - docs/project_summary.txt            --> This file (complete project reference)
+    - docs/DEPLOYMENT_ARCHITECTURE.md     --> Deployment architecture overview
+    - docs/NETLIFY_SETUP.md               --> Netlify setup instructions
+    - docs/WHATSAPP_MESSAGE_FETCHING_GUIDE.md --> Message fetching guide
+    - docs/Notes                          --> Development notes
+    - docs/server.backup                  --> Backup of previous server implementation
+    - whatsapp-service/API_DOCUMENTATION.md --> Basic API reference (legacy)
+    - whatsapp-service/frontend/README.md --> Frontend documentation
+  
+  Standalone Service (whatsapp-service-standalone):
+    Complete documentation suite in docs/ folder:
+    - docs/README.md (7.9KB)              --> Documentation index and navigation hub
+    - docs/API_DOCUMENTATION.md (14.2KB)  --> Complete API reference with 40+ endpoints
+    - docs/DEPLOYMENT_GUIDE.md (18.1KB)   --> Comprehensive deployment guide:
+      * Quick Deploy (Railway)
+      * Docker Deployment (Compose & standalone)
+      * Cloud Platforms (Render, Heroku, DigitalOcean)
+      * AWS (EC2, ECS, Elastic Beanstalk)
+      * Google Cloud (Cloud Run, Compute Engine)
+      * Azure (Container Instances, App Service)
+      * Self-Hosted (PM2, systemd)
+      * Environment variables reference
+      * Monitoring & troubleshooting
+      * Backup & recovery
+      * Security checklist
+    - docs/TROUBLESHOOTING.md (17.2KB)    --> Common issues and solutions:
+      * Installation issues
+      * Connection problems
+      * QR code issues
+      * Message sending failures
+      * Performance issues
+      * Deployment issues
+      * Authentication errors
+      * Webhook problems
+      * Logging & debugging
+    - docs/FAQ.md (16.2KB)                --> Frequently asked questions:
+      * General questions (legal, bans, official status)
+      * Technical questions (vs Business API, limits)
+      * Setup & deployment
+      * Security & privacy
+      * Features & capabilities
+      * Advanced usage & integrations
+      * Pricing & costs
+      * Support & contributing
+    - docs/CONTRIBUTING.md (13.6KB)       --> Contribution guidelines:
+      * Code of conduct
+      * Development setup
+      * Coding standards & style guide
+      * Testing guidelines
+      * Pull request process
+      * Bug reporting templates
+      * Feature request process
+      * Development tips
+    - docs/CHANGELOG.md (6.3KB)           --> Version history and roadmap:
+      * v1.0.0 features (Released: 2025-11-06)
+      * v1.1.0 roadmap (Q1 2025)
+      * v1.2.0 roadmap (Q2 2025)
+      * v2.0.0 roadmap (Q3 2025)
+      * Migration guides
+      * Contributors recognition
+    - docs/RAILWAY_DEPLOYMENT.md (4.2KB)  --> Railway-specific quick guide
+    - docs/DEPLOYMENT.md (8.3KB)          --> Alternative deployment instructions
+    - docs/INDEPENDENCE.md (5.9KB)        --> Architecture and service independence
+    - docs/SEPARATION_SUMMARY.md (4.7KB)  --> Separation from monorepo details
+    - docs/README-Baileys.md (45.2KB)     --> Baileys library comprehensive documentation
+    - docs/example.ts (8.2KB)             --> Example TypeScript code
+  
+  Total Standalone Documentation: ~120KB across 13 professional files
 
 External Links:
   - Baileys GitHub: https://github.com/WhiskeySockets/Baileys
@@ -629,13 +783,22 @@ External Links:
   - Supabase Docs: https://supabase.com/docs
 
 Repository:
-  - GitHub: https://github.com/MahdyHQ/whatsapp-academic-manager
-  - License: MIT
-  - Author: MahdyHQ
+  Main Project:
+    - GitHub: https://github.com/MahdyHQ/whatsapp-academic-manager
+    - License: MIT
+    - Author: MahdyHQ
+  
+  Standalone Service:
+    - GitHub: https://github.com/MahdyHQ/whatsapp-service-standalone
+    - License: ISC
+    - Version: 1.0.0
+    - Author: MahdyHQ
 
 Support & Issues:
-  - GitHub Issues: https://github.com/MahdyHQ/whatsapp-academic-manager/issues
+  - Main Project Issues: https://github.com/MahdyHQ/whatsapp-academic-manager/issues
+  - Standalone Service Issues: https://github.com/MahdyHQ/whatsapp-service-standalone/issues
   - Check project_summary.txt for latest architecture updates
+  - See standalone docs/ folder for comprehensive guides
 
 -------------------------
 12) Future Enhancements & TODOs

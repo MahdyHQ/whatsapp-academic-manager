@@ -1,4 +1,4 @@
-## WhatsApp Academic Manager — Frontend (Next.js on Vercel)
+`## WhatsApp Academic Manager — Frontend (Next.js on Vercel)
 
 This is the Next.js frontend for WhatsApp Academic Manager. It’s optimized for deployment on Vercel with sensible defaults and environment-based API targets.
 

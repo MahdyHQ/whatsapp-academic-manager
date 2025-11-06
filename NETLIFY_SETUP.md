@@ -15,8 +15,8 @@ Go to: **Site settings → Environment variables → Add a variable**
 Add these variables:
 
 1. **NEXT_PUBLIC_API_URL**
-   - Value: `https://whatsapp-academic-manager-production.up.railway.app`
-   - Description: WhatsApp service Railway URL
+   - Value: `https://whatsapp-service-standalone-production.up.railway.app`
+   - Description: WhatsApp service Railway URL (standalone deployment)
 
 2. **NEXT_PUBLIC_BACKEND_URL**
    - Value: `https://wam-api-production.up.railway.app`

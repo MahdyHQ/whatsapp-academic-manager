@@ -19,7 +19,7 @@ This project uses a **multi-platform deployment strategy** with three independen
 │                                                                 │
 │  3️⃣  RAILWAY → WhatsApp Service (Node.js/TypeScript)           │
 │     📁 ../whatsapp-service-standalone/                          │
-│     🔗 https://whatsapp-standalone-production.up.railway.app/  │
+│     🔗 https://whatsapp-service-standalone-production.up.railway.app/ │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -144,7 +144,7 @@ C:\Users\asd\Documents\GitHub\whatsapp-service-standalone\
 ✅ **Enabled**: Pushes to standalone repo → Auto-deploys (independent)
 
 ### URL
-- Production: (Will be assigned when you create Railway project)
+- Production: https://whatsapp-service-standalone-production.up.railway.app/
 
 ---
 

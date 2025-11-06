@@ -1,8 +1,8 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "cd whatsapp-service && npm install"
-watchPatterns = ["whatsapp-service/**"]
+buildCommand = "cd backend && pip install -r requirements.txt"
+watchPatterns = ["backend/**"]
 
 [deploy]
-startCommand = "cd whatsapp-service && npm start"
+startCommand = "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
 restartPolicyType = "ON_FAILURE"

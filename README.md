@@ -4,8 +4,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![React 18.3](https://img.shields.io/badge/react-18.3-61dafb.svg)](https://reactjs.org/)
-[![Next.js 15](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
+[![Node.js 24.11+](https://img.shields.io/badge/node.js-24.11+-green.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/typescript-5.9+-blue.svg)](https://www.typescriptlang.org/)
+[![React 19.2](https://img.shields.io/badge/react-19.2-61dafb.svg)](https://reactjs.org/)
+[![Next.js 16](https://img.shields.io/badge/next.js-16-black.svg)](https://nextjs.org/)
+[![Baileys 7.0](https://img.shields.io/badge/baileys-7.0--rc.6-purple.svg)](https://github.com/WhiskeySockets/Baileys)
 
 ### 🎯 Never Miss an Exam or Deadline Again!
 
@@ -49,15 +52,20 @@ And most importantly: **I wanted it to be FREE and easy to use** for fellow stud
 
 Think of this as your **personal academic assistant** that:
 
+### 🌟 What Does This Do? (Simple Explanation)
+
+Think of this as your **personal academic assistant** that:
+
 ### ✅ Watches Your WhatsApp Groups 24/7
-- Monitors your academic groups and communities
+- Monitors your academic groups and communities using Baileys (WhatsApp Web API)
 - Doesn't send any messages or disturb anyone
-- Works silently in the background
+- Works silently in the background with TypeScript-powered reliability
 
 ### 🧠 Understands What's Important
-- Uses AI to read messages and find exam dates, assignments, and deadlines
+- Uses AI (Gemini, GPT-4o-mini, Claude, or Mistral) to read messages and find exam dates, assignments, and deadlines
 - Knows the difference between "Exam tomorrow!" and "Anyone want to grab lunch?"
 - Understands corrections like "Wait, the exam is Friday, not Thursday!"
+- Processes images (OCR), audio (transcription), and documents automatically
 
 ### 📅 Creates Your Academic Calendar
 - Beautiful web dashboard showing all your upcoming events
@@ -111,8 +119,15 @@ This project is **ideal for students who want to**:
 
 1. **A GitHub account** (sign up at [github.com](https://github.com))
 2. **Your WhatsApp** (on your phone)
-3. **30 minutes** of your time
-4. **No coding experience required!** (seriously!)
+3. **Node.js 24.11.0+** installed on your computer
+4. **30 minutes** of your time
+5. **No coding experience required!** (seriously!)
+
+### System Requirements
+- **WhatsApp Service**: Node.js >= 24.11.0, npm >= 11.6.2
+- **Frontend**: Node.js 22.x (for Next.js 16)
+- **Backend**: Python 3.12+ (for FastAPI)
+- **Operating System**: Windows, macOS, or Linux
 
 ### 🎬 3-Step Launch
 
@@ -190,19 +205,40 @@ The project uses AI to understand messages. You need **free API keys** (like pas
 
 #### 3. **Set Up Environment Variables**
 
-In your GitHub Codespace:
+The project uses multiple environment files for different services:
 
+**Root Configuration (.env.base):**
 ```bash
-# 1. Copy the example environment file
-cp .env.example .env
+# In the project root directory
+cp .env.base .env
 
-# 2. Open the .env file
+# Edit .env with your settings
 code .env
+```
+
+**WhatsApp Service (.env.local):**
+```bash
+# Navigate to whatsapp-service directory
+cd whatsapp-service
+cp .env.example .env.local
+
+# Edit .env.local
+code .env.local
+```
+
+**Frontend (.env.frontend):**
+```bash
+# Navigate to frontend directory
+cd whatsapp-service/frontend
+cp .env.example .env.frontend
+
+# Edit .env.frontend
+code .env.frontend
 ```
 
 #### 4. **Add Your API Keys**
 
-Edit the `.env` file and paste your keys:
+Edit the `.env.base` file in the root directory and paste your keys:
 
 ```bash
 # ===== AI PROVIDERS =====
@@ -215,17 +251,50 @@ MISTRAL_API_KEY=your_mistral_key_here        # (Optional) Paste Mistral key
 # ===== DATABASE (We'll use free Supabase) =====
 DATABASE_URL=postgresql://...                 # We'll add this next
 
-# ===== NOTIFICATIONS (Optional - set up later) =====
-SMTP_HOST=smtp.gmail.com                      # For email notifications
-SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASSWORD=your_app_password
-
 # ===== SECURITY =====
 SECRET_KEY=your-super-secret-key-change-this  # Make this random and secure!
+JWT_SECRET_KEY=your-jwt-secret-key            # Another random secure key
 ```
 
-**💡 Pro Tip:** Start with just Gemini API key. Add others later!
+Then edit `whatsapp-service/.env.local`:
+
+```bash
+# Server Configuration
+PORT=3000
+NODE_ENV=development
+
+# API Security (generate with: python -c "import secrets; print(secrets.token_urlsafe(32))")
+API_KEY=your-secure-api-key-here
+x-api-key=your-secure-api-key-here
+
+# Authorized Phone Numbers (comma-separated, with country codes)
+AUTHORIZED_PHONES=+1234567890,+0987654321
+
+# WhatsApp Session Storage
+AUTH_DIR=/tmp/auth_info
+
+# Optional: Webhook for events
+WEBHOOK_URL=
+
+# Logging
+LOG_LEVEL=info
+BAILEYS_LOG_LEVEL=info
+```
+
+And finally `whatsapp-service/frontend/.env.frontend`:
+
+```bash
+# API Endpoints
+NEXT_PUBLIC_API_URL=http://localhost:3000
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_API_KEY=your-api-key-here
+
+# App Info
+NEXT_PUBLIC_APP_NAME=Academic Manager
+NEXT_PUBLIC_APP_VERSION=2.4.0
+```
+
+**💡 Pro Tip:** Start with just Gemini API key and local URLs. Deploy to production later!
 
 ---
 
@@ -261,19 +330,28 @@ SECRET_KEY=your-super-secret-key-change-this  # Make this random and secure!
 
 #### 7. **Install Dependencies**
 
-In your Codespace terminal:
+The project has three main components that need dependencies:
 
+**Backend (Python/FastAPI):**
 ```bash
-# Install Python packages
+cd backend
 pip install -r requirements.txt
-
-# Install Node.js packages (for web interface)
-cd frontend
-npm install
-cd ..
 ```
 
-This takes 3-5 minutes ☕
+**WhatsApp Service (Node.js/TypeScript):**
+```bash
+cd whatsapp-service
+npm install
+# This will automatically run 'npm run build' via postinstall script
+```
+
+**Frontend (Next.js):**
+```bash
+cd whatsapp-service/frontend
+npm install
+```
+
+This takes 5-10 minutes total ☕
 
 #### 8. **Set Up Database Tables**
 
@@ -294,32 +372,56 @@ You should see:
 
 #### 9. **Start the Application!**
 
-Open **two terminals** in Codespace:
+Open **three terminals** in your development environment:
 
-**Terminal 1 - Backend (Python):**
+**Terminal 1 - WhatsApp Service (TypeScript/Node.js):**
 ```bash
-cd backend
-python bot.py
+cd whatsapp-service
+
+# Development mode (with hot reload):
+npm run dev
+
+# OR Production mode:
+npm run build
+npm start
 ```
 
 You should see:
 ```
-🚀 WhatsApp Academic Manager Starting...
-✅ Database connected
-✅ AI providers initialized (Gemini: ✅)
-✅ Server running on http://localhost:8000
+🚀 WhatsApp Service Starting...
+✅ Config loaded from config.mjs
+✅ Baileys v7.0.0-rc.6 initialized
+✅ Server running on http://localhost:3000
+✅ Health endpoint: http://localhost:3000/health
 ```
 
-**Terminal 2 - Frontend (Web Interface):**
+**Terminal 2 - Frontend (Next.js 16):**
 ```bash
-cd frontend
+cd whatsapp-service/frontend
 npm run dev
 ```
 
 You should see:
 ```
-✅ Next.js ready on http://localhost:3000
+✅ Next.js 16.0.1 ready
+✅ Local: http://localhost:3001
+✅ Network: http://192.168.x.x:3001
 ```
+
+**Terminal 3 - Backend (Python/FastAPI) - Optional:**
+```bash
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+You should see:
+```
+✅ FastAPI server running
+✅ API docs: http://localhost:8000/docs
+✅ Connected to WhatsApp service
+```
+
+**Note:** The main functionality runs with just WhatsApp Service + Frontend. The Backend is optional for advanced features.
 
 ---
 
@@ -327,25 +429,47 @@ You should see:
 
 #### 10. **Scan QR Code**
 
-1. Open the web interface: `http://localhost:3000` (Codespace will open it for you)
-2. Click **"Add WhatsApp Account"**
-3. A QR code will appear
+1. Open the WhatsApp service: `http://localhost:3000` (or the frontend at `http://localhost:3001`)
+2. The service will display connection options:
+   - **QR Code Method**: Scan with WhatsApp mobile app
+   - **Phone Number Method**: Enter phone and receive OTP
+3. Choose QR Code method:
+   - A QR code will appear in the terminal and web interface
 4. Open **WhatsApp on your phone**:
    - Go to **Settings** → **Linked Devices**
    - Tap **"Link a Device"**
    - Scan the QR code on screen
-5. ✅ Your WhatsApp is now connected!
+5. ✅ Your WhatsApp is now connected via Baileys!
+
+**Connection Details:**
+- Session stored in `AUTH_DIR` (default: `/tmp/auth_info`)
+- Supports multi-device (up to 4 linked devices)
+- Connection persists across restarts
+- Auto-reconnect on network issues (max 10 attempts)
 
 #### 11. **Select Groups to Monitor**
 
-1. In the web dashboard, go to **"Account Management"**
-2. You'll see all your WhatsApp groups
-3. **Toggle ON** the groups you want to monitor:
-   - ✅ "CS101 - Fall 2025"
-   - ✅ "Math Study Group"
-   - ✅ "University Announcements"
-   - ❌ "Family Chat" (probably don't need this 😊)
-4. Click **"Save"**
+1. In the web dashboard (frontend), go to **"Account Management"** or access the API directly
+2. Fetch your groups:
+   ```bash
+   curl -H "x-api-key: YOUR_API_KEY" http://localhost:3000/groups
+   ```
+3. You'll see all your WhatsApp groups with metadata:
+   - Group name
+   - Participant count
+   - Group ID
+   - Last message timestamp
+4. **Configure monitoring** via the frontend interface or API
+5. The service will start processing messages from selected groups
+
+**API Endpoints Available:**
+- `GET /groups` - List all groups
+- `GET /group/:groupId/messages` - Fetch group messages
+- `GET /contacts` - List all contacts
+- `GET /connection-state` - Check connection status
+- `POST /send-message` - Send messages (if needed)
+
+See `whatsapp-service/API_DOCUMENTATION.md` for complete API reference.
 
 ---
 
@@ -362,19 +486,31 @@ Covers chapters 5-10. Good luck everyone!"
 
 #### 13. **Watch the Magic! ✨**
 
-1. Go to your dashboard: `http://localhost:3000/dashboard`
+1. Go to your dashboard: `http://localhost:3001/dashboard` (frontend) or check via API
 2. Within seconds, you should see:
    - 🔴 **New Event**: "Math Exam"
    - 📅 **Date**: Friday, November 8th, 10:00 AM
    - 📍 **Location**: Hall B
    - 📚 **Topics**: Chapters 5-10
    - ⚡ **Confidence**: 95%
-   - 🤖 **Analyzed by**: Gemini 2.0
+   - 🤖 **Analyzed by**: Gemini 2.0 (or your configured AI)
+   - 🔧 **Processing Time**: < 2 seconds
 
-3. Go to the calendar view:
-   - You'll see the exam marked on November 8th
-   - Color-coded red (high priority)
-   - Click on it to see full details
+3. View real-time processing:
+   ```bash
+   # Terminal logs will show:
+   [INFO] Message received from group: Math Study Group
+   [INFO] Sent to AI for analysis
+   [INFO] Event detected: Math Exam
+   [INFO] Confidence: 95%
+   [INFO] Saved to database
+   [INFO] Notification sent
+   ```
+
+4. Check the API directly:
+   ```bash
+   curl -H "x-api-key: YOUR_KEY" http://localhost:3000/admin/stats
+   ```
 
 ---
 
@@ -630,34 +766,35 @@ async def analyze_message(message: str) -> Event:
 ---
 
 ### ⚛️ **Frontend Development (React/Next.js)**
-- **React Hooks** - useState, useEffect, custom hooks
-- **Next.js 15** - Server-side rendering, app router
-- **Tailwind CSS** - Modern styling
+- **React 19.2** - Latest React with Server Components
+- **Next.js 16** - App router, SSR, ISR
+- **TypeScript 5.9+** - Type-safe frontend
+- **Tailwind CSS** - Modern utility-first styling
+- **shadcn/ui** - Beautiful, accessible components
+- **React Query (@tanstack)** - Server state management
 - **Real-time updates** - WebSocket integration
 
 **What You'll Learn:**
 ```typescript
-// Example: Real-time event updates
+// Example: Real-time event updates with Next.js 16 Server Components
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+
 function EventList() {
-  const [events, setEvents] = useState([]);
+  const { data: events, isLoading } = useQuery({
+    queryKey: ['events'],
+    queryFn: async () => {
+      const res = await fetch('/api/events');
+      return res.json();
+    },
+    refetchInterval: 5000, // Poll every 5 seconds
+  });
   
-  // Fetch events
-  useEffect(() => {
-    fetchEvents().then(setEvents);
-  }, []);
-  
-  // Subscribe to real-time updates
-  useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/events');
-    ws.onmessage = (msg) => {
-      const newEvent = JSON.parse(msg.data);
-      setEvents(prev => [newEvent, ...prev]);
-    };
-    return () => ws.close();
-  }, []);
+  if (isLoading) return <EventsSkeleton />;
   
   return (
-    <div>
+    <div className="grid gap-4">
       {events.map(event => (
         <EventCard key={event.id} event={event} />
       ))}
@@ -669,44 +806,102 @@ function EventList() {
 ---
 
 ### 🤖 **AI Integration**
-- **LangChain** - AI orchestration
-- **Prompt engineering** - Getting better AI results
-- **Multiple AI providers** - Fallback strategies
-- **Confidence scoring** - Trust AI results
+- **LangChain** - AI orchestration and chaining
+- **Multiple Providers** - Gemini, OpenAI, Claude, Mistral
+- **Prompt engineering** - Optimized prompts for accuracy
+- **Confidence scoring** - Trust AI results appropriately
+- **Fallback strategies** - Switch providers on failure
 
 **What You'll Learn:**
 ```python
-# Example: Smart AI provider selection
-async def select_best_ai_provider(message: str) -> AIProvider:
-    # For simple messages, use fast/cheap AI
-    if is_simple(message):
-        return FastAI()
+# Example: Smart AI provider selection with fallback
+async def analyze_message_with_fallback(message: str) -> EventData:
+    providers = [GeminiAI(), OpenAI(), ClaudeAI(), MistralAI()]
     
-    # For complex analysis, use accurate AI
-    if requires_accuracy(message):
-        return AccurateAI()
+    for provider in providers:
+        try:
+            result = await provider.analyze(message)
+            if result.confidence > 0.8:
+                return result
+        except (RateLimitError, APIError) as e:
+            logger.warning(f"{provider.name} failed: {e}, trying next...")
+            continue
     
-    # For local processing, use Ollama
-    if prefer_privacy(message):
-        return LocalAI()
+    # Fallback to local AI if all cloud providers fail
+    return await LocalAI().analyze(message)
 ```
+
+**AI Response Format:**
+```typescript
+interface AIResponse {
+  event_type: 'exam' | 'assignment' | 'meeting' | 'announcement';
+  title: string;
+  datetime: string;  // ISO 8601
+  location?: string;
+  description?: string;
+  topics?: string[];
+  confidence: number;  // 0.0 to 1.0
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+}
 
 ---
 
 ### 💾 **Database Design**
-- **PostgreSQL** - Relational database
+- **PostgreSQL** - Powerful relational database
+- **Supabase** - Managed PostgreSQL with real-time subscriptions
 - **Schema design** - Tables, relationships, indexes
-- **Migrations** - Update database structure safely
-- **Querying** - Find data efficiently
+- **Migrations** - Version control for database structure
+- **Efficient querying** - Optimized SQL queries
+
+**Database Schema:**
+```sql
+-- Users table
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- WhatsApp accounts
+CREATE TABLE whatsapp_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
+  phone_number VARCHAR(20) UNIQUE NOT NULL,
+  is_connected BOOLEAN DEFAULT false,
+  session_data JSONB,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Events extracted from messages
+CREATE TABLE events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID REFERENCES whatsapp_accounts(id),
+  event_type VARCHAR(50) NOT NULL,
+  title TEXT NOT NULL,
+  start_datetime TIMESTAMP NOT NULL,
+  location VARCHAR(255),
+  description TEXT,
+  priority VARCHAR(20),
+  confidence DECIMAL(3,2),
+  created_at TIMESTAMP DEFAULT NOW(),
+  INDEX idx_start_datetime (start_datetime),
+  INDEX idx_priority (priority)
+);
+```
 
 **What You'll Learn:**
 ```sql
 -- Example: Find all critical events in next 48 hours
-SELECT *
-FROM events
-WHERE priority = 'CRITICAL'
-  AND start_datetime BETWEEN NOW() AND NOW() + INTERVAL '48 hours'
-ORDER BY start_datetime ASC;
+SELECT 
+  e.*,
+  wa.phone_number,
+  u.email
+FROM events e
+JOIN whatsapp_accounts wa ON e.account_id = wa.id
+JOIN users u ON wa.user_id = u.id
+WHERE e.priority = 'CRITICAL'
+  AND e.start_datetime BETWEEN NOW() AND NOW() + INTERVAL '48 hours'
+ORDER BY e.start_datetime ASC;
 ```
 
 ---
@@ -732,7 +927,7 @@ ORDER BY start_datetime ASC;
 ### Option 1: GitHub Codespaces (Current - For Testing)
 
 ✅ **Pros:**
-- Free for 60 hours/month
+- Free for 60 hours/month (120 hours for students!)
 - No setup needed
 - Access from anywhere
 - Perfect for development
@@ -749,57 +944,207 @@ ORDER BY start_datetime ASC;
 
 When you're ready to run it permanently:
 
-#### **Backend: Render.com (FREE)**
+#### **WhatsApp Service: Railway.app (FREE)**
+
+Railway provides native Node.js support with auto-detection:
 
 ```bash
-# 1. Sign up at render.com
+# 1. Sign up at railway.app
 # 2. Connect your GitHub repository
-# 3. Create new Web Service:
-#    - Build Command: pip install -r requirements.txt
-#    - Start Command: python backend/bot.py
-# 4. Add environment variables (all your API keys)
-# 5. Deploy!
+# 3. Create new service from repo
+# 4. Railway auto-detects:
+#    - Node.js 24.11.0+
+#    - TypeScript build (npm run build)
+#    - Start command (npm start)
+# 5. Add environment variables:
+#    - API_KEY
+#    - AUTHORIZED_PHONES
+#    - AUTH_DIR=/tmp/auth_info
+#    - NODE_ENV=production
+# 6. Deploy!
 ```
 
-**Result:** Backend runs 24/7 for FREE (750 hours/month)
+**Configuration** (railway.toml):
+```toml
+[build]
+builder = "NIXPACKS"
+buildCommand = "cd whatsapp-service && npm install"
+watchPatterns = ["whatsapp-service/**"]
 
-#### **Frontend: Vercel (FREE)**
+[deploy]
+startCommand = "cd whatsapp-service && npm start"
+restartPolicyType = "ON_FAILURE"
+```
+
+**Result:** WhatsApp service runs 24/7 for FREE
+- URL: `https://whatsapp-academic-manager-production.up.railway.app/`
+- Auto-deploy on push to main
+- 500 hours/month free tier
+
+---
+
+#### **Frontend: Netlify (FREE)**
+
+Netlify provides excellent Next.js 16 support:
 
 ```bash
-# 1. Install Vercel CLI
-npm i -g vercel
+# 1. Install Netlify CLI
+npm i -g netlify-cli
 
 # 2. Deploy
-cd frontend
-vercel --prod
+cd whatsapp-service/frontend
+netlify deploy --prod
 
-# 3. Done! Get a public URL like:
-# https://whatsapp-academic-manager.vercel.app
+# 3. Configure build settings:
+#    - Base directory: whatsapp-service/frontend
+#    - Build command: npm run build
+#    - Publish directory: .next
+#    - Plugin: @netlify/plugin-nextjs
 ```
 
-**Result:** Fast, global web interface, unlimited bandwidth
+**Configuration** (netlify.toml):
+```toml
+[build]
+  base = "whatsapp-service/frontend"
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+```
+
+**Result:** Fast, global web interface
+- URL: `https://ai-app-control.netlify.app/`
+- Unlimited bandwidth
+- Automatic HTTPS
+- Global CDN
+
+---
+
+#### **Backend: Railway or Render (FREE)**
+
+For the Python FastAPI backend:
+
+```bash
+# Option A: Railway
+# 1. Create new service
+# 2. Set build command: pip install -r requirements.txt
+# 3. Set start command: uvicorn main:app --host 0.0.0.0 --port $PORT
+# 4. Add environment variables
+
+# Option B: Render.com
+# 1. Sign up at render.com
+# 2. Create new Web Service
+# 3. Build Command: pip install -r requirements.txt
+# 4. Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+**Result:** Backend runs 24/7 for FREE
+- URL: `https://wam-api-production.up.railway.app/`
+- 750 hours/month free
+
+---
 
 #### **Database: Supabase (FREE)**
 - Already using it!
 - 500MB free storage
 - Automatic backups
 - 2 billion row reads/month
+- Real-time subscriptions included
 
 ---
 
-### Option 3: Self-Host (Advanced)
+### Option 3: Standalone WhatsApp Service Deployment
+
+For deploying only the WhatsApp service independently:
+
+**Separate Repository:**
+```bash
+# Clone the standalone version
+git clone https://github.com/MahdyHQ/whatsapp-service-standalone.git
+cd whatsapp-service-standalone
+
+# This repo contains:
+# - WhatsApp service only (no backend/frontend coupling)
+# - Railway.json for direct deployment
+# - Complete documentation
+# - Independent git history
+```
+
+**Benefits:**
+- Faster deploys (smaller codebase)
+- Independent versioning
+- Can connect multiple frontends
+- Easier to maintain
+
+See `C:\Users\asd\Documents\GitHub\whatsapp-service-standalone\` for details.
+
+---
+
+### Option 4: Self-Host (Advanced)
 
 If you have a server or Raspberry Pi:
 
 ```bash
-# Use Docker for easy deployment
+# Clone the repository
+git clone https://github.com/MahdyHQ/whatsapp-academic-manager.git
+cd whatsapp-academic-manager
+
+# Install dependencies
+cd whatsapp-service && npm install && cd ..
+cd whatsapp-service/frontend && npm install && cd ../..
+cd backend && pip install -r requirements.txt && cd ..
+
+# Configure environment variables
+cp .env.base .env
+cp whatsapp-service/.env.example whatsapp-service/.env.local
+cp whatsapp-service/frontend/.env.example whatsapp-service/frontend/.env.frontend
+
+# Edit all .env files with your settings
+
+# Build and start services
+cd whatsapp-service && npm run build && npm start &
+cd whatsapp-service/frontend && npm run build && npm start &
+cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 &
+```
+
+**Using Docker (Coming Soon):**
+```bash
+# Simple one-command deployment
 docker-compose up -d
 
 # Runs entire stack:
-# - Backend (Python)
-# - Frontend (Next.js)
+# - WhatsApp Service (Node.js/TypeScript)
+# - Frontend (Next.js 16)
+# - Backend (FastAPI)
 # - PostgreSQL database
 # - Redis cache
+```
+
+**Using PM2 (Process Manager):**
+```bash
+# Install PM2
+npm install -g pm2
+
+# Start WhatsApp service
+cd whatsapp-service
+pm2 start npm --name "whatsapp-service" -- start
+
+# Start frontend
+cd ../whatsapp-service/frontend
+pm2 start npm --name "frontend" -- start
+
+# Start backend
+cd ../../backend
+pm2 start "uvicorn main:app --host 0.0.0.0 --port 8000" --name "backend"
+
+# Save PM2 configuration
+pm2 save
+pm2 startup
 ```
 
 ---
@@ -1020,12 +1365,16 @@ POST /api/v2/user/me/anonymize
 
 ### Built With Amazing Tools
 
-- **[WhatsApp Web.js](https://wwebjs.dev/)** - WhatsApp integration library
-- **[FastAPI](https://fastapi.tiangolo.com/)** - Backend framework
-- **[Next.js](https://nextjs.org/)** - React framework
-- **[Supabase](https://supabase.com/)** - Database & real-time
-- **[Tailwind CSS](https://tailwindcss.com/)** - Styling
-- **[FullCalendar](https://fullcalendar.io/)** - Calendar component
+- **[@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)** - WhatsApp Web API library (v7.0.0-rc.6)
+- **[FastAPI](https://fastapi.tiangolo.com/)** - Modern Python web framework
+- **[Next.js](https://nextjs.org/)** - React framework with App Router (v16)
+- **[TypeScript](https://www.typescriptlang.org/)** - Type-safe JavaScript (v5.9+)
+- **[Supabase](https://supabase.com/)** - PostgreSQL database with real-time features
+- **[Tailwind CSS](https://tailwindcss.com/)** - Utility-first CSS framework
+- **[shadcn/ui](https://ui.shadcn.com/)** - Beautiful React components
+- **[React Query](https://tanstack.com/query)** - Server state management
+- **[Pino](https://getpino.io/)** - Fast JSON logger for Node.js
+- **[Express.js](https://expressjs.com/)** - Node.js web framework (v5.x)
 
 ### AI Providers
 

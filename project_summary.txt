@@ -1,225 +1,663 @@
 Project: WhatsApp Academic Manager
-Path: /workspaces/whatsapp-academic-manager
-Date: 2025-11-04
+Path: C:\Users\asd\Documents\GitHub\whatsapp-academic-manager
+Last Updated: 2025-11-06
 
 PURPOSE
-- This file summarizes the project structure, key entry points, environment variable names discovered in the repository, and instructions for an AI or developer to work on the project and reproduce/debug the running services.
-- Sensitive values are REDACTED. If you want them included here (key=value), please reply with explicit confirmation and provide the values you want recorded. Do NOT paste secrets unless you are comfortable storing them in the repository.
+- This file summarizes the complete project structure, key entry points, environment variable names, deployment configurations, and instructions for developers/AI to work on the project and reproduce/debug the running services.
+- This is a monorepo containing: Backend (Python/FastAPI), WhatsApp Service (TypeScript/Node.js), and Frontend (Next.js)
+- Sensitive values should NOT be committed. Use environment variables in deployment platforms.
 
 -------------------------
 1) High-level folders and important files
 -------------------------
-(Only the most relevant files are listed — there are more files in subfolders.)
+Complete file structure (excluding node_modules, .git, build artifacts):
 
 / (repo root)
-- README.md
-- LICENSE
-- railway.toml
-- .env.example  (project-wide example environment variables)
-- Notes/
+- README.md                                 --> Main project documentation
+- README-Baileys.md                         --> Baileys library documentation
+- LICENSE                                   --> MIT License
+- .env                                      --> Root environment file (DO NOT COMMIT)
+- .env.base                                 --> Base configuration template with AI providers
+- .nvmrc                                    --> Node version specification
+- railway.toml                              --> Railway deployment config (WhatsApp service)
+- netlify.toml                              --> Netlify deployment config (Frontend)
+- NETLIFY_SETUP.md                          --> Netlify setup instructions
+- WHATSAPP_MESSAGE_FETCHING_GUIDE.md        --> Guide for fetching WhatsApp messages
+- Notes                                     --> Project notes
+- project_summary.txt                       --> This file
+- server.backup                             --> Backup of previous server implementation
+- example.ts                                --> Example TypeScript code
 
-/backend
-- main.py                --> FastAPI forwarding layer that calls the Whatsapp service
-- config.py
-- models/ (user models)
-- utils/database.py
-- requirements.txt
+/backend (Python FastAPI forwarding layer)
+- main.py                                   --> FastAPI app - forwards requests to WhatsApp service
+- config.py                                 --> Backend configuration
+- .env                                      --> Backend environment variables
+- .api_url                                  --> API URL reference
+- requirements.txt                          --> Python dependencies
+- s.txt                                     --> Notes/scratch file
+- __init__.py
+- models/
+  - __init__.py
+  - user.py                                 --> User model
+- utils/
+  - __init__.py
+  - database.py                             --> Database utilities
+  - logger.py                               --> Logging configuration
 
-/whatsapp-service
-- server.js              --> Main WhatsApp/Express service (Baileys integration, QR & OTP flows)
-- config.mjs             --> Centralized config + env validation for the whatsapp-service
-- package.json
-- .env.example
-- public/ (favicons, static assets)
-- frontend/ (Next.js app used for UI)
-  - package.json
-  - .env.local          --> frontend runtime public env (NEXT_PUBLIC_API_URL, etc.)
-  - README.md
-  - src/app/
-    - globals.css
-    - layout.tsx
-    - page.tsx
-    - groups/page.tsx
-    - login/page.tsx
-    - messages/page.tsx
-    - test-messages/page.tsx
-  - src/components/
-    - providers.tsx
-    - ui/
-      - avatar.tsx
-      - badge.tsx
-      - button.tsx
-      - card.tsx
-      - input.tsx
-      - select.tsx
-      - separator.tsx
-      - skeleton.tsx
-      - toast.tsx
-      - toaster.tsx
-  - src/contexts/
-    - auth-context.tsx
-  - src/hooks/
-    - use-toast.ts
-  - src/lib/
-    - utils.ts
-    - api/
-      - api.ts
-      - whatsapp.txt
-    - hooks/
-      - use-whatsapp.ts
-  - public/ (static assets used by the frontend)
+/whatsapp-service (Node.js/TypeScript WhatsApp API service)
+- server.ts                                 --> Main WhatsApp service (TypeScript, 2659 lines)
+- config.mjs                                --> Centralized config + env validation
+- package.json                              --> Node.js dependencies and scripts
+- tsconfig.json                             --> TypeScript configuration
+- .env.local                                --> WhatsApp service environment variables
+- README.md                                 --> WhatsApp service documentation
+- API_DOCUMENTATION.md                      --> Complete API endpoint documentation
+- public/
+  - favicon.ico                             --> Service favicon (ICO)
+  - favicon.svg                             --> Service favicon (SVG)
+
+/whatsapp-service/frontend (Next.js 16 UI)
+- package.json                              --> Frontend dependencies (Node 22.x)
+- tsconfig.json                             --> TypeScript config
+- next.config.ts                            --> Next.js configuration
+- .nvmrc                                    --> Node version (22.x)
+- .env.frontend                             --> Frontend environment variables
+- README.md                                 --> Frontend documentation
+- components.json                           --> shadcn/ui components config
+- eslint.config.mjs                         --> ESLint configuration
+- postcss.config.mjs                        --> PostCSS configuration
+- vercel.json                               --> Vercel deployment config
+- s.txt                                     --> Notes/scratch file
+- public/
+  - favicon.svg
+  - file.svg
+  - globe.svg
+  - next.svg
+  - vercel.svg
+  - window.svg
+- src/app/
+  - favicon.ico
+  - globals.css                             --> Global styles
+  - layout.tsx                              --> Root layout
+  - page.tsx                                --> Home page
+  - login/page.tsx                          --> Login page
+  - groups/page.tsx                         --> WhatsApp groups page
+  - messages/page.tsx                       --> Messages page
+  - test-messages/page.tsx                  --> Test messages page
+- src/components/
+  - providers.tsx                           --> React Query provider
+  - ui/                                     --> shadcn/ui components
+    - avatar.tsx
+    - badge.tsx
+    - button.tsx
+    - card.tsx
+    - input.tsx
+    - select.tsx
+    - separator.tsx
+    - skeleton.tsx
+    - toast.tsx
+    - toaster.tsx
+- src/contexts/
+  - auth-context.tsx                        --> Authentication context
+- src/hooks/
+  - use-toast.ts                            --> Toast notification hook
+- src/lib/
+  - utils.ts                                --> Utility functions
+  - api/
+    - api.ts                                --> API client
+  - hooks/
+    - use-whatsapp.ts                       --> WhatsApp hook
 
 /.devcontainer
-- devcontainer.json
-
-Other notable files
-- whatsapp-service/frontend/.env.local  (NEXT_PUBLIC_API_URL set to production URL)
+- devcontainer.json                         --> VS Code dev container config
 
 -------------------------
-2) Main entry points & how to run locally (quick commands)
+2) Technology Stack & Versions
 -------------------------
-- Backend (Python / FastAPI):
+Backend:
+- Python 3.x with FastAPI
+- PostgreSQL via Supabase
+- Dependencies: See backend/requirements.txt
+
+WhatsApp Service:
+- Node.js >= 24.11.0
+- TypeScript (compiled to ES2022)
+- Express.js 5.x
+- @whiskeysockets/baileys 7.0.0-rc.6
+- Build system: TypeScript Compiler (tsc)
+- Module system: ES Modules (type: "module")
+
+Frontend:
+- Node.js 22.x (specified in engines)
+- Next.js 16.0.1
+- React 19.2.0
+- TypeScript
+- Tailwind CSS
+- shadcn/ui components
+- @tanstack/react-query 5.x
+- Deployment: Netlify with @netlify/plugin-nextjs
+
+-------------------------
+3) Main entry points & how to run locally
+-------------------------
+
+Backend (Python / FastAPI):
   cd backend
   python -m venv .venv
+  # Windows PowerShell:
+  .\.venv\Scripts\Activate.ps1
+  # Linux/Mac:
   source .venv/bin/activate
+  
   pip install -r requirements.txt
   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+  # API docs available at: http://localhost:8000/docs
 
-- WhatsApp service (Node.js / Express + Baileys):
+WhatsApp Service (Node.js / TypeScript + Baileys):
   cd whatsapp-service
   npm install
-  # dev: nodemon server.js (if installed)
-  node server.js
-  # or use: npm start (if script is defined)
+  
+  # Development (with hot reload):
+  npm run dev
+  
+  # Production build and start:
+  npm run build
+  npm start
+  
+  # Service runs on: http://localhost:3000
 
-- Frontend (Next.js):
+Frontend (Next.js):
   cd whatsapp-service/frontend
   npm install
+  
+  # Development:
   npm run dev
+  # Runs on: http://localhost:3000
+  
+  # Production build:
+  npm run build
+  npm start
 
 Notes:
-- The WhatsApp service uses Baileys and expects an auth directory (AUTH_DIR) where it stores session files.
-- The production endpoints used in this repo (from previous checks):
-  - Whatsapp service (production): https://whatsapp-academic-manager-production.up.railway.app/
-  - Backend forwarding: https://wam-api-production.up.railway.app/
-  - Frontend (production): https://ai-app-control.netlify.app/
+- WhatsApp service uses Baileys and stores session files in AUTH_DIR (default: /tmp/auth_info)
+- The service requires QR code scanning or phone authentication on first run
+- Frontend communicates with both WhatsApp service and Backend API
+
+Production Endpoints:
+- WhatsApp Service: https://whatsapp-academic-manager-production.up.railway.app/
+- Backend API: https://wam-api-production.up.railway.app/
+- Frontend: https://ai-app-control.netlify.app/
 
 -------------------------
-3) Environment variables discovered (keys, source file / default / example)
+4) Environment Variables (Complete Reference)
 -------------------------
-- These names were found in code and .env.example files. Values are REDACTED unless explicitly safe/public (e.g., frontend NEXT_PUBLIC_API_URL).
-- If you want values filled in this file, provide them and confirm you accept storing them here.
 
-From `whatsapp-service/config.mjs` and `server.js`:
-- PORT                          (default: 3000)
-- AUTH_DIR                      (default: /tmp/auth_info)
-- API_KEY                       (admin API key used by server; required to protect admin endpoints) [REDACTED]
-- AUTHORIZED_PHONES             (comma-separated list, e.g. +201155547529)
-- OTP_PHONE_LIMIT               (default: OTP_PHONE_LIMIT or OTP_PHONE_LIMIT env override)
-- OTP_PHONE_WINDOW_MS           (default fallback value used in code)
-- OTP_IP_LIMIT                  (default fallback value used in code)
-- OTP_IP_WINDOW_MS              (default fallback value used in code)
-- MAX_RECONNECT_ATTEMPTS        (default: 10)
-- NODE_ENV                      (development/production)
-- NODE_OPTIONS                  (optional Node flags)
+Root Level (.env.base) - AI Providers & Base Configuration:
+- GEMINI_API_KEY                    --> Google Gemini AI (1,500 requests/day free)
+- OPENAI_API_KEY                    --> OpenAI GPT-4o-mini
+- ANTHROPIC_API_KEY                 --> Anthropic Claude
+- MISTRAL_API_KEY                   --> Mistral AI
+- DATABASE_URL                      --> PostgreSQL connection string (Supabase format)
+- SECRET_KEY                        --> General secret key for encryption
+- JWT_SECRET_KEY                    --> JWT token signing key
+- JWT_ALGORITHM                     --> JWT algorithm (default: HS256)
+- JWT_EXPIRATION_HOURS              --> JWT expiration time (default: 24)
+- API_V2_PREFIX                     --> API version prefix (default: /api/v2)
+- BACKEND_PORT                      --> Backend port (default: 8000)
+- BACKEND_HOST                      --> Backend host (default: 0.0.0.0)
+- FRONTEND_URL                      --> Frontend URL (default: http://localhost:3000)
+- SMTP_HOST                         --> Email SMTP host (e.g., smtp.gmail.com)
+- SMTP_PORT                         --> SMTP port (default: 587)
+- SMTP_USER                         --> SMTP username
+- SMTP_PASSWORD                     --> SMTP password (use app password for Gmail)
+- SMTP_FROM_EMAIL                   --> Email sender address
+- SMTP_FROM_NAME                    --> Email sender name
+- WHATSAPP_SESSION_PATH             --> WhatsApp session storage path
+- WHATSAPP_MAX_RETRIES              --> Max connection retry attempts
+- WHATSAPP_RETRY_DELAY              --> Delay between retries
+- AI_DEFAULT_PROVIDER               --> Default AI provider to use
+- LOG_LEVEL                         --> Logging level (debug/info/warn/error)
+- LOG_FILE                          --> Log file path
+- DEBUG                             --> Debug mode flag
+- ENVIRONMENT                       --> Environment name (development/production)
 
-From `backend/main.py` and backend/.api_url (forwarding layer):
-- WHATSAPP_SERVICE_URL          (default: https://whatsapp-academic-manager-production.up.railway.app)
-- WHATSAPP_API_KEY              (used by backend to call whatsapp-service as admin) [REDACTED]
+WhatsApp Service (whatsapp-service/.env.local):
+- PORT                              --> Server port (default: 3000)
+- API_KEY                           --> Admin API key for protected endpoints
+- x-api-key                         --> Alternative API key header
+- AUTHORIZED_PHONES                 --> Comma-separated phone numbers (format: +1234567890)
+- AUTH_DIR                          --> WhatsApp session storage directory (default: /tmp/auth_info)
+- WEBHOOK_URL                       --> Optional webhook URL for events
+- SESSION_SECRET                    --> Session encryption secret
+- NODE_ENV                          --> Environment (development/production)
+- LOG_LEVEL                         --> Pino logger level (default: info)
+- BAILEYS_LOG_LEVEL                 --> Baileys library log level (default: info)
+- MAX_RECONNECT_ATTEMPTS            --> Max WhatsApp reconnection attempts (default: 10)
+- OTP_PHONE_LIMIT                   --> OTP rate limit per phone (default: 3)
+- OTP_PHONE_WINDOW_MS               --> OTP rate limit window for phone (default: 600000 = 10min)
+- OTP_IP_LIMIT                      --> OTP rate limit per IP (default: 30)
+- OTP_IP_WINDOW_MS                  --> OTP rate limit window for IP (default: 3600000 = 1hr)
+- SERVICE_NAME                      --> Service name (default: WhatsApp Academic Manager API)
+- SERVICE_VERSION                   --> Service version (default: 2.4.0)
+- SERVICE_AUTHOR                    --> Service author (default: MahdyHQ)
+- BAILEYS_README_PATH               --> Path to Baileys documentation (default: ../README-Baileys.md)
 
-From repo root `.env.example` (project-wide examples — treat these as examples and possibly sensitive):
-- GEMINI_API_KEY                (example placeholder) [REDACTED]
-- OPENAI_API_KEY                [REDACTED]
-- ANTHROPIC_API_KEY             [REDACTED]
-- MISTRAL_API_KEY               [REDACTED]
-- DATABASE_URL                  (example connection string - REDACTED)
-- SECRET_KEY / JWT_SECRET_KEY   (REDACED)
-- JWT_ALGORITHM
-- JWT_EXPIRATION_HOURS
-- API_V2_PREFIX
-- BACKEND_PORT
-- BACKEND_HOST
-- FRONTEND_URL
-- SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM_EMAIL / SMTP_FROM_NAME  (email config — REDACTED)
-- WHATSAPP_SESSION_PATH
-- WHATSAPP_MAX_RETRIES
-- WHATSAPP_RETRY_DELAY
-- AI_DEFAULT_PROVIDER
-- LOG_LEVEL / LOG_FILE
-- DEBUG / ENVIRONMENT
+Frontend (whatsapp-service/frontend/.env.frontend):
+- NEXT_PUBLIC_API_URL               --> WhatsApp service API URL
+- NEXT_PUBLIC_BACKEND_URL           --> Backend API URL
+- NEXT_PUBLIC_API_KEY               --> API key for backend requests
+- NEXT_PUBLIC_APP_NAME              --> Application name (default: Academic Manager)
+- NEXT_PUBLIC_APP_VERSION           --> Application version (default: 2.4.0)
+- NODE_VERSION                      --> Node.js version (22.x)
+- NEXT_TELEMETRY_DISABLED           --> Disable Next.js telemetry (set to 1)
 
-From `whatsapp-service/frontend/.env.local`:
-- NEXT_PUBLIC_API_URL = https://whatsapp-academic-manager-production.up.railway.app  (public frontend config)
-- NEXT_PUBLIC_BACKEND_URL = https://wam-api-production.up.railway.app  (backend API endpoint)
-- NEXT_PUBLIC_API_KEY  (API key for backend requests) [REDACTED]
-- NEXT_PUBLIC_APP_NAME = Academic Manager
-- NEXT_PUBLIC_APP_VERSION = 2.4.0
+Backend (.env):
+- WHATSAPP_SERVICE_URL              --> URL of WhatsApp service
+- WHATSAPP_API_KEY                  --> API key for authenticating with WhatsApp service
 
-Deployment platforms:
-- Frontend: Netlify (https://ai-app-control.netlify.app/)
-  - Base directory: whatsapp-service/frontend
-  - Build command: npm run build
-  - Publish directory: .next
-  - Node version: 22.x
-  - Plugin: @netlify/plugin-nextjs v5.14.5
-- WhatsApp Service: Railway (https://whatsapp-academic-manager-production.up.railway.app/)
-- Backend API: Railway (https://wam-api-production.up.railway.app/)
-
-Files where environment variables are read or used:
-- /whatsapp-service/config.mjs
-- /whatsapp-service/server.js
-- /whatsapp-service/frontend/src/... (reads NEXT_PUBLIC_API_URL)
-- /backend/main.py
-- /.env.example (examples)
-
--------------------------
-4) Recommended 'contract' for AI helpers working on this repo
--------------------------
-- Inputs:
-  - Which service to work on (backend, whatsapp-service, or frontend)
-  - Optional: reproduction steps (which endpoint you called, exact request, API key or user token used)
-  - Optional: environment variables (if you want the AI to modify or test with live credentials, provide them explicitly and confirm storage)
-- Outputs:
-  - Concrete code changes (patches) with file paths
-  - Tests or manual steps to validate the change
-  - Short explanation of why change was made and how it fixes the issue
-
-Edge cases to consider when debugging message fetching:
-- Empty message arrays can come from: remote API responses that are empty, Baileys versions with changed helper names, or server-side store being empty (auth/session mismatch).
-- Rate limits / connection states: ensure socket `connectionState === 'connected'` before requesting history.
-- Auth differences: some endpoints accept x-api-key or Authorization: Bearer <token>.
+Configuration Files Where Variables Are Used:
+- /whatsapp-service/config.mjs      --> Centralized config loader with validation
+- /whatsapp-service/server.ts       --> Main service implementation
+- /backend/main.py                  --> Backend API forwarding layer
+- /backend/config.py                --> Backend configuration loader
+- /.env.base                        --> Base template for all environments
+- /whatsapp-service/.env.local      --> WhatsApp service specific config
+- /whatsapp-service/frontend/.env.frontend --> Frontend public config
 
 -------------------------
-5) Useful commands & where to look for logs
+5) Deployment Configuration
 -------------------------
-- See server logs for WhatsApp service (stdout) — platform-specific:
-  - Railway: project -> deployment -> logs
-  - Docker: docker logs <container>
-  - Local: terminal where `node server.js` is running
 
-- Tail backend logs locally:
+Railway (WhatsApp Service):
+  File: railway.toml
+  Configuration:
+    - Builder: NIXPACKS (auto-detects Node.js from package.json)
+    - Build Command: cd whatsapp-service && npm install
+    - Start Command: cd whatsapp-service && npm start
+    - Watch Patterns: whatsapp-service/**
+    - Restart Policy: ON_FAILURE
+  
+  Environment Variables (set in Railway dashboard):
+    - API_KEY
+    - AUTHORIZED_PHONES
+    - NODE_ENV=production
+    - All other variables from whatsapp-service/.env.local
+  
+  Deployment URL: https://whatsapp-academic-manager-production.up.railway.app/
+  
+  Auto-deploy: Triggers on push to main branch (whatsapp-service/** changes only)
+
+Netlify (Frontend):
+  File: netlify.toml
+  Configuration:
+    - Base Directory: whatsapp-service/frontend
+    - Build Command: npm run build
+    - Publish Directory: .next
+    - Node Version: 22.x
+    - Plugin: @netlify/plugin-nextjs (handles Next.js SSR/SSG)
+  
+  Environment Variables (set in Netlify dashboard):
+    - NEXT_PUBLIC_API_URL
+    - NEXT_PUBLIC_BACKEND_URL
+    - NEXT_PUBLIC_API_KEY
+    - NEXT_PUBLIC_APP_NAME
+    - NEXT_PUBLIC_APP_VERSION
+    - NEXT_TELEMETRY_DISABLED=1
+  
+  Security Headers:
+    - X-Frame-Options: DENY
+    - X-Content-Type-Options: nosniff
+    - X-XSS-Protection: 1; mode=block
+    - Referrer-Policy: strict-origin-when-cross-origin
+  
+  Caching:
+    - Static assets (_next/static/*): max-age=31536000, immutable
+    - Favicon: max-age=86400
+  
+  Deployment URL: https://ai-app-control.netlify.app/
+  
+  Auto-deploy: Triggers on push to main branch
+
+Backend (Railway/Manual):
+  Location: /backend
+  Deployment: Railway or manual deployment
+  URL: https://wam-api-production.up.railway.app/
+  
+  Environment Variables:
+    - WHATSAPP_SERVICE_URL
+    - WHATSAPP_API_KEY
+    - DATABASE_URL
+    - All variables from .env.base
+
+Dev Container:
+  File: .devcontainer/devcontainer.json
+  Purpose: VS Code containerized development environment
+  Features: Provides consistent dev environment across machines
+
+-------------------------
+6) API Architecture & Flow
+-------------------------
+
+Request Flow:
+  Frontend (Netlify) 
+    ↓ NEXT_PUBLIC_API_URL
+  WhatsApp Service (Railway:3000) → Baileys → WhatsApp Web
+    ↑ x-api-key header
+  Backend (Railway:8000) ← Optional forwarding layer
+    ↓ WHATSAPP_API_KEY
+  Database (Supabase PostgreSQL)
+
+Key Endpoints (WhatsApp Service):
+  Health & Status:
+    - GET /health                         --> Health check
+    - GET /api/health                     --> API health check
+    - GET /connection-state               --> WhatsApp connection status
+  
+  Authentication & QR:
+    - POST /connect                       --> Initialize WhatsApp connection
+    - GET /qr                             --> Get QR code for scanning
+    - POST /request-otp                   --> Request OTP for phone auth
+    - POST /verify-otp                    --> Verify OTP code
+    - POST /logout                        --> Disconnect WhatsApp
+  
+  Messaging:
+    - POST /send-message                  --> Send text message
+    - POST /send-image                    --> Send image with caption
+    - POST /send-audio                    --> Send audio message
+    - POST /send-video                    --> Send video with caption
+    - POST /send-document                 --> Send document/file
+  
+  Groups & Contacts:
+    - GET /groups                         --> List all WhatsApp groups
+    - GET /group/:groupId/messages        --> Fetch group messages
+    - GET /contacts                       --> List all contacts
+  
+  Admin (requires x-api-key):
+    - GET /admin/stats                    --> Service statistics
+    - POST /admin/restart                 --> Restart WhatsApp connection
+    - DELETE /admin/session               --> Clear session data
+
+  See whatsapp-service/API_DOCUMENTATION.md for complete API reference
+
+Authentication:
+  - API Key: x-api-key header (required for admin endpoints)
+  - Phone Auth: AUTHORIZED_PHONES environment variable
+  - Rate Limiting: IP-based and phone-based limits configured in config.mjs
+
+Data Flow:
+  1. Frontend makes request to NEXT_PUBLIC_API_URL
+  2. WhatsApp Service validates API key (if admin endpoint)
+  3. Service uses Baileys to communicate with WhatsApp Web
+  4. Session data stored in AUTH_DIR for persistence
+  5. Optional: Webhook events sent to WEBHOOK_URL
+  6. Response returned to frontend
+
+-------------------------
+7) Development Guidelines & Best Practices
+-------------------------
+
+Code Style:
+  - Backend: Python PEP 8, type hints recommended
+  - WhatsApp Service: TypeScript with strict mode disabled (see tsconfig.json)
+  - Frontend: TypeScript, ESLint, React best practices
+  - Formatting: Prettier for JavaScript/TypeScript
+
+Git Workflow:
+  - Main branch: main
+  - Auto-deploy on push to main (Railway and Netlify)
+  - Keep commits atomic and descriptive
+
+Environment Management:
+  - Never commit .env files with real credentials
+  - Use .env.base as template
+  - Set secrets in deployment platform dashboards
+  - For local dev: Copy .env.base to .env and fill in values
+
+Testing:
+  - Backend: Use FastAPI test client
+  - WhatsApp Service: Jest configured (npm test)
+  - Frontend: Test with npm run lint
+  - Manual testing: Use /health endpoints
+
+Debugging Tips:
+  - WhatsApp Service logs: Railway dashboard or local terminal
+  - Backend logs: uvicorn output or Railway logs
+  - Frontend: Browser dev tools + Next.js dev mode
+  - Connection issues: Check AUTH_DIR permissions and AUTHORIZED_PHONES format
+  - Message fetching: Verify socket connectionState === 'connected'
+  - Rate limits: Check OTP_*_LIMIT and OTP_*_WINDOW_MS settings
+
+Common Issues:
+  1. Empty message arrays:
+     - Cause: Session mismatch, empty store, or Baileys API changes
+     - Fix: Clear AUTH_DIR and re-authenticate
+  
+  2. QR code not showing:
+     - Cause: AUTH_DIR not writable or previous session exists
+     - Fix: Check directory permissions, clear old sessions
+  
+  3. Connection drops:
+     - Cause: Network issues or WhatsApp rate limits
+     - Fix: Check MAX_RECONNECT_ATTEMPTS, verify AUTHORIZED_PHONES
+  
+  4. Build failures:
+     - Frontend: Check Node version (must be 22.x)
+     - WhatsApp Service: Check Node >= 24.11.0
+     - Backend: Check Python dependencies in requirements.txt
+
+File Watching:
+  - WhatsApp Service: nodemon watches server.ts
+  - Frontend: Next.js has built-in hot reload
+  - Backend: uvicorn --reload flag
+
+-------------------------
+8) Useful Commands Reference
+-------------------------
+
+Local Development:
+  # Start all services locally
+  
+  # Terminal 1 - Backend
   cd backend
-  uvicorn main:app --reload --port 8000
-  # Web UI: http://localhost:8000/docs
+  .\.venv\Scripts\Activate.ps1  # Windows
+  uvicorn main:app --reload --host 0.0.0.0 --port 8000
+  
+  # Terminal 2 - WhatsApp Service
+  cd whatsapp-service
+  npm run dev
+  
+  # Terminal 3 - Frontend
+  cd whatsapp-service/frontend
+  npm run dev
 
-- Fetch groups/messages via backend forwarding (example):
-  curl -H "x-api-key: <WHATSAPP_API_KEY>" "https://wam-api-production.up.railway.app/api/whatsapp/groups"
+Production Build & Deploy:
+  # WhatsApp Service
+  cd whatsapp-service
+  npm run build
+  npm start
+  
+  # Frontend
+  cd whatsapp-service/frontend
+  npm run build
+  npm start
+  
+  # Backend (Railway auto-deploys)
+  git push origin main
+
+Testing & Validation:
+  # Health checks
+  curl http://localhost:3000/health
+  curl http://localhost:8000/docs
+  
+  # Test WhatsApp API
+  curl -H "x-api-key: YOUR_KEY" http://localhost:3000/connection-state
+  
+  # Test groups endpoint
+  curl -H "x-api-key: YOUR_KEY" https://whatsapp-academic-manager-production.up.railway.app/groups
+
+View Logs:
+  # Railway (WhatsApp Service):
+  - Go to Railway dashboard → Project → Deployments → View Logs
+  
+  # Railway (Backend):
+  - Go to Railway dashboard → Project → Deployments → View Logs
+  
+  # Netlify (Frontend):
+  - Go to Netlify dashboard → Site → Deploys → Function logs
+  
+  # Local:
+  - Check terminal where services are running
+  - WhatsApp Service: Pino structured JSON logs
+  - Backend: Uvicorn access logs
+  - Frontend: Next.js build/runtime logs
+
+Git Commands:
+  # Check status
+  git status
+  
+  # Commit changes
+  git add .
+  git commit -m "Description of changes"
+  
+  # Push to trigger auto-deploy
+  git push origin main
+  
+  # View recent commits
+  git log --oneline -10
+
+Package Management:
+  # Update dependencies
+  cd whatsapp-service && npm update
+  cd whatsapp-service/frontend && npm update
+  cd backend && pip install --upgrade -r requirements.txt
+  
+  # Check for security vulnerabilities
+  npm audit
+  pip check
 
 -------------------------
-6) Questions / what I need from you to complete the summary or to help further
+9) Project Separations & Standalone Deployments
 -------------------------
-1) Do you want me to include your actual secret values (API_KEY, WHATSAPP_API_KEY, DATABASE_URL, etc.) in this file? If yes, paste them here and explicitly confirm you accept storing them in the repository.
-2) Which environment (local / production) do you want the AI to target for debugging? (local dev, railway production, or a specific deploy)
-3) If you want me to push this file and/or commit it to git and optionally trigger a deploy, do you grant me permission to run git commands in this workspace? (I will not push to remote without explicit permission.)
-4) If you want logs for the production `whatsapp-service` instance, do you have access to Railway logs or another provider UI and can paste relevant log snippets, or should I try to fetch anything via the existing backend endpoints?
+
+Standalone WhatsApp Service:
+  Location: C:\Users\asd\Documents\GitHub\whatsapp-service-standalone
+  Purpose: Independent deployment of WhatsApp service without monorepo
+  Configuration:
+    - Railway.json for native Node.js deployment (no Docker)
+    - Self-contained with all dependencies
+    - Separate git repository
+    - Independent deploy pipeline
+  
+  Key Changes:
+    - Updated package.json repository URLs
+    - Fixed config.mjs BAILEYS_README_PATH to local file
+    - Included README-Baileys.md in standalone repo
+    - Added RAILWAY_DEPLOYMENT.md guide
+  
+  Deployment:
+    - Push to separate GitHub repository
+    - Connect to Railway
+    - Railway auto-detects Node.js and deploys
+    - No Docker required (faster builds)
+
+Monorepo Structure:
+  - Main repo contains: Backend, WhatsApp Service, Frontend
+  - Railway watches whatsapp-service/** for WhatsApp service deploys
+  - Netlify watches whatsapp-service/frontend/** for frontend deploys
+  - Each service can be deployed independently
 
 -------------------------
-7) Next steps I can take (pick one):
-- A) Commit this `project_summary.txt` to the repo and push (I will ask for permission before pushing). I can also create a `.env.template` with variable names (values redacted) to help onboarding.
-- B) Add an optional script to `whatsapp-service` to dump effective environment (masking secrets) and a README section describing required envs and how to populate them.
-- C) Start instrumenting the WhatsApp service further (more logs) and run a local test (requires providing a session/auth or allowing the service to create one via QR scan).
+10) Security Considerations
+-------------------------
+
+API Key Management:
+  - Store API_KEY securely (use secrets.token_urlsafe(32))
+  - Never commit API keys to repository
+  - Rotate keys regularly in production
+  - Use different keys for dev/staging/production
+
+Phone Authorization:
+  - AUTHORIZED_PHONES must include country code (+1234567890)
+  - Comma-separated list for multiple phones
+  - Validates against incoming requests
+
+Rate Limiting:
+  - OTP requests: Per-phone and per-IP limits
+  - Configured in config.mjs
+  - Prevents brute force attacks
+
+Session Security:
+  - AUTH_DIR should have restricted permissions
+  - Session files contain sensitive WhatsApp credentials
+  - Clear sessions on logout
+  - Backup AUTH_DIR for disaster recovery
+
+Frontend Security:
+  - All API URLs use HTTPS in production
+  - CSP headers configured in netlify.toml
+  - No sensitive data in localStorage
+  - API keys passed via headers, not query params
+
+CORS:
+  - WhatsApp Service: cors() middleware enabled
+  - Configure allowed origins in production
+  - Frontend must match NEXT_PUBLIC_API_URL
 
 -------------------------
-End of summary
+11) Resources & Documentation
+-------------------------
+
+Internal Documentation:
+  - README.md                           --> Main project overview
+  - README-Baileys.md                   --> Baileys library documentation
+  - whatsapp-service/API_DOCUMENTATION.md --> Complete API reference
+  - whatsapp-service/frontend/README.md --> Frontend documentation
+  - WHATSAPP_MESSAGE_FETCHING_GUIDE.md  --> Message fetching guide
+  - NETLIFY_SETUP.md                    --> Netlify deployment guide
+  - Notes                               --> Development notes
+
+External Links:
+  - Baileys GitHub: https://github.com/WhiskeySockets/Baileys
+  - Railway Docs: https://docs.railway.app
+  - Netlify Docs: https://docs.netlify.com
+  - Next.js Docs: https://nextjs.org/docs
+  - FastAPI Docs: https://fastapi.tiangolo.com
+  - Supabase Docs: https://supabase.com/docs
+
+Repository:
+  - GitHub: https://github.com/MahdyHQ/whatsapp-academic-manager
+  - License: MIT
+  - Author: MahdyHQ
+
+Support & Issues:
+  - GitHub Issues: https://github.com/MahdyHQ/whatsapp-academic-manager/issues
+  - Check project_summary.txt for latest architecture updates
+
+-------------------------
+12) Future Enhancements & TODOs
+-------------------------
+
+Potential Improvements:
+  - [ ] Add comprehensive test coverage
+  - [ ] Implement message queuing system
+  - [ ] Add support for more WhatsApp features (polls, reactions)
+  - [ ] Enhance error handling and retry logic
+  - [ ] Add monitoring and alerting (Sentry, DataDog)
+  - [ ] Implement webhook signature validation
+  - [ ] Add API versioning
+  - [ ] Create CLI tool for management tasks
+  - [ ] Improve session backup/restore mechanism
+  - [ ] Add support for multiple WhatsApp accounts
+  - [ ] Implement rate limiting middleware
+  - [ ] Add comprehensive API documentation (OpenAPI/Swagger)
+
+Known Limitations:
+  - WhatsApp Web session requires periodic re-authentication
+  - Rate limits imposed by WhatsApp may affect high-volume usage
+  - Media file size limits based on WhatsApp's restrictions
+  - Connection stability depends on network quality
+
+-------------------------
+End of Summary - Last Updated: 2025-11-06
 -------------------------
 

@@ -33,7 +33,7 @@ app.add_middleware(
 
 WHATSAPP_SERVICE_URL = os.getenv(
     "WHATSAPP_SERVICE_URL",
-    "https://whatsapp-academic-manager-production.up.railway.app"
+    "https://whatsapp-service-standalone-production.up.railway.app"
 )
 WHATSAPP_API_KEY = os.getenv("WHATSAPP_API_KEY", "")
 

@@ -730,6 +730,175 @@ export const api = {
     getBusinessProfile: async (jid: string) => {
       return fetchWithAuth(`/api/business/${jid}/profile`, {}, false);
     },
+
+    // ==================== ADVANCED BAILEYS FEATURES ====================
+
+    /**
+     * Request placeholder message resend (when message failed to decrypt)
+     * @param groupId - WhatsApp group or contact ID
+     * @param messageId - ID of the placeholder message
+     */
+    requestPlaceholderResend: async (params: {
+      groupId: string;
+      messageId: string;
+    }) => {
+      return fetchWithAuth('/api/request-placeholder-resend', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    /**
+     * Fetch message history on demand
+     * @param groupId - WhatsApp group or contact ID
+     * @param limit - Number of messages to fetch (default: 50)
+     */
+    fetchHistory: async (params: {
+      groupId: string;
+      limit?: number;
+    }) => {
+      return fetchWithAuth('/api/fetch-history', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    /**
+     * Send broadcast message to multiple recipients
+     * @param phones - Array of phone numbers
+     * @param message - Message text
+     */
+    sendBroadcast: async (params: {
+      phones: string[];
+      message: string;
+    }) => {
+      return fetchWithAuth('/api/send-broadcast', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    /**
+     * Send WhatsApp story/status
+     * @param mediaUrl - URL of the media file
+     * @param mediaType - Type of media: 'image' | 'video'
+     * @param caption - Optional caption for the story
+     */
+    sendStory: async (params: {
+      mediaUrl: string;
+      mediaType: 'image' | 'video';
+      caption?: string;
+    }) => {
+      return fetchWithAuth('/api/send-story', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    /**
+     * Get broadcast list info
+     * @param listId - Broadcast list ID
+     */
+    getBroadcastList: async (listId: string) => {
+      return fetchWithAuth(`/api/broadcast/${listId}`, {}, false);
+    },
+
+    // ==================== NEWSLETTER OPERATIONS ====================
+
+    /**
+     * Follow or unfollow a newsletter
+     * @param newsletterId - Newsletter ID
+     * @param action - 'follow' or 'unfollow'
+     */
+    newsletterFollow: async (params: {
+      newsletterId: string;
+      action: 'follow' | 'unfollow';
+    }) => {
+      return fetchWithAuth('/api/newsletter/follow', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    // ==================== PRIVACY SETTINGS ====================
+
+    /**
+     * Update privacy settings
+     * @param setting - Privacy setting to update
+     * @param value - Privacy value
+     */
+    updatePrivacySettings: async (params: {
+      setting: 'last' | 'online' | 'profile' | 'status' | 'readreceipts' | 'groupadd';
+      value: 'all' | 'contacts' | 'contact_blacklist' | 'none';
+    }) => {
+      return fetchWithAuth('/api/privacy/update', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    /**
+     * Get current privacy settings
+     */
+    getPrivacySettings: async () => {
+      return fetchWithAuth('/api/privacy/settings', {}, false);
+    },
+
+    /**
+     * Set default disappearing message timer
+     * @param duration - Duration in seconds (0 to disable)
+     */
+    setDefaultDisappearing: async (params: {
+      duration: number;
+    }) => {
+      return fetchWithAuth('/api/disappearing/set-default', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    /**
+     * Get blocklist
+     */
+    getBlocklist: async () => {
+      return fetchWithAuth('/api/blocklist', {}, false);
+    },
+
+    /**
+     * Update profile picture for user or group
+     * @param jid - WhatsApp JID (user or group)
+     * @param imageUrl - URL of the new profile picture
+     */
+    updateProfilePicture: async (params: {
+      jid: string;
+      imageUrl: string;
+    }) => {
+      return fetchWithAuth('/api/profile/update-picture', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }, false);
+    },
+
+    /**
+     * Get connection statistics
+     */
+    getStats: async () => {
+      return fetchWithAuth('/api/stats', {}, false);
+    },
+
+    /**
+     * Get all contacts
+     */
+    getContacts: async () => {
+      return fetchWithAuth('/api/contacts', {}, false);
+    },
+
+    /**
+     * Get detailed connection state
+     */
+    getConnectionState: async () => {
+      return fetchWithAuth('/api/connection-state', {}, false);
+    },
   },
 
   // ==================== ADMIN/UTILITY ENDPOINTS ====================

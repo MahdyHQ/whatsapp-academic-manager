@@ -184,7 +184,7 @@ Notes:
 - Frontend communicates with both WhatsApp service and Backend API
 
 Production Endpoints:
-- WhatsApp Service: https://whatsapp-academic-manager-production.up.railway.app/
+- WhatsApp Service (Standalone): https://whatsapp-service-standalone-production.up.railway.app/
 - Backend API: https://wam-api-production.up.railway.app/
 - Frontend: https://ai-app-control.netlify.app/
 
@@ -283,7 +283,7 @@ Railway (WhatsApp Service):
     - NODE_ENV=production
     - All other variables from whatsapp-service/.env.local
   
-  Deployment URL: https://whatsapp-academic-manager-production.up.railway.app/
+  Deployment URL: https://whatsapp-service-standalone-production.up.railway.app/
   
   Auto-deploy: Triggers on push to main branch (whatsapp-service/** changes only)
 
@@ -493,7 +493,7 @@ Testing & Validation:
   curl -H "x-api-key: YOUR_KEY" http://localhost:3000/connection-state
   
   # Test groups endpoint
-  curl -H "x-api-key: YOUR_KEY" https://whatsapp-academic-manager-production.up.railway.app/groups
+  curl -H "x-api-key: YOUR_KEY" https://whatsapp-service-standalone-production.up.railway.app/groups
 
 View Logs:
   # Railway (WhatsApp Service):
@@ -541,23 +541,27 @@ Package Management:
 
 Standalone WhatsApp Service:
   Location: C:\Users\asd\Documents\GitHub\whatsapp-service-standalone
+  Repository: https://github.com/MahdyHQ/whatsapp-service-standalone
   Purpose: Independent deployment of WhatsApp service without monorepo
   Configuration:
-    - Railway.json for native Node.js deployment (no Docker)
+    - nixpacks.toml for native Node.js 24 deployment
     - Self-contained with all dependencies
     - Separate git repository
     - Independent deploy pipeline
+  
+  Deployment URL: https://whatsapp-service-standalone-production.up.railway.app/
   
   Key Changes:
     - Updated package.json repository URLs
     - Fixed config.mjs BAILEYS_README_PATH to local file
     - Included README-Baileys.md in standalone repo
     - Added RAILWAY_DEPLOYMENT.md guide
+    - Added nixpacks.toml to specify Node.js 24
   
   Deployment:
     - Push to separate GitHub repository
     - Connect to Railway
-    - Railway auto-detects Node.js and deploys
+    - Railway auto-detects Node.js 24 via nixpacks.toml
     - No Docker required (faster builds)
 
 Monorepo Structure:

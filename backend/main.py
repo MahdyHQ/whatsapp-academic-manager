@@ -111,6 +111,8 @@ async def root():
             "chats": "✅ Archive, pin, mute, delete",
             "profile": "✅ Profile operations",
             "presence": "✅ Typing indicators, online status",
+            "advanced": "✅ Broadcast, stories, newsletters",
+            "privacy": "✅ Privacy settings and blocklist",
             "utilities": "✅ Media download, business profiles"
         },
         "whatsapp": {
@@ -118,22 +120,76 @@ async def root():
             "api_key_configured": bool(WHATSAPP_API_KEY)
         },
         "endpoints": {
+            "health": "/health",
             "status": "/api/whatsapp/status",
+            "connection_state": "/api/connection-state",
             "groups": "/api/whatsapp/groups",
+            "contacts": "/api/contacts",
             "messages": "/api/whatsapp/messages/{group_id}",
-            "send": "/api/send",
-            "send_media": "/api/send-media",
-            "send_location": "/api/send-location",
-            "send_contact": "/api/send-contact",
-            "send_poll": "/api/send-poll",
-            "reply": "/api/reply",
-            "react": "/api/react",
-            "edit_message": "/api/edit-message",
-            "delete_message": "/api/delete-message",
-            "group_operations": "/api/group/*",
-            "chat_operations": "/api/chat/*",
-            "profile_operations": "/api/profile/*",
-            "presence_operations": "/api/presence/*",
+            "messaging": {
+                "send": "/api/send",
+                "send_media": "/api/send-media",
+                "send_location": "/api/send-location",
+                "send_contact": "/api/send-contact",
+                "send_poll": "/api/send-poll",
+                "reply": "/api/reply",
+                "react": "/api/react",
+                "edit_message": "/api/edit-message",
+                "delete_message": "/api/delete-message",
+                "send_broadcast": "/api/send-broadcast",
+                "send_story": "/api/send-story"
+            },
+            "group_operations": {
+                "create": "/api/group/create",
+                "update_subject": "/api/group/update-subject",
+                "update_description": "/api/group/update-description",
+                "add_participants": "/api/group/add-participants",
+                "remove_participants": "/api/group/remove-participants",
+                "promote": "/api/group/promote",
+                "demote": "/api/group/demote",
+                "update_settings": "/api/group/update-settings",
+                "leave": "/api/group/leave",
+                "invite_code": "/api/group/{groupId}/invite-code",
+                "revoke_invite": "/api/group/revoke-invite",
+                "accept_invite": "/api/group/accept-invite"
+            },
+            "chat_operations": {
+                "read": "/api/chat/read",
+                "archive": "/api/chat/archive",
+                "pin": "/api/chat/pin",
+                "mute": "/api/chat/mute",
+                "delete": "/api/chat/delete"
+            },
+            "profile_operations": {
+                "get_picture": "/api/profile-picture/{jid}",
+                "update_name": "/api/profile/update-name",
+                "update_status": "/api/profile/update-status",
+                "update_picture": "/api/profile/update-picture",
+                "get_user_status": "/api/user/{jid}/status",
+                "check_exists": "/api/user/{jid}/exists"
+            },
+            "presence_operations": {
+                "update": "/api/presence/update",
+                "subscribe": "/api/presence/subscribe"
+            },
+            "privacy": {
+                "update_settings": "/api/privacy/update",
+                "get_settings": "/api/privacy/settings",
+                "set_disappearing_default": "/api/disappearing/set-default",
+                "get_blocklist": "/api/blocklist",
+                "block_user": "/api/user/block"
+            },
+            "advanced": {
+                "fetch_history": "/api/fetch-history",
+                "request_placeholder_resend": "/api/request-placeholder-resend",
+                "broadcast_list": "/api/broadcast/{listId}",
+                "newsletter_follow": "/api/newsletter/follow"
+            },
+            "utilities": {
+                "download_media": "/api/download-media",
+                "business_profile": "/api/business/{jid}/profile",
+                "stats": "/api/stats"
+            },
             "docs": "/docs"
         },
         "timestamp": datetime.now(timezone.utc).isoformat()
@@ -1187,6 +1243,324 @@ async def get_business_profile(jid: str, authorization: Optional[str] = Header(N
             headers = get_headers(authorization)
             response = await client.get(
                 f"{WHATSAPP_SERVICE_URL}/api/business/{jid}/profile",
+                headers=headers
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+# ==================== ADVANCED BAILEYS FEATURES ====================
+
+@app.post("/api/request-placeholder-resend")
+async def request_placeholder_resend(request: Request, authorization: Optional[str] = Header(None)):
+    """Request placeholder message resend (when message failed to decrypt)"""
+    try:
+        print(f"\n🔄 POST /api/request-placeholder-resend")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/request-placeholder-resend",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.post("/api/fetch-history")
+async def fetch_message_history(request: Request, authorization: Optional[str] = Header(None)):
+    """Fetch message history on demand"""
+    try:
+        print(f"\n📜 POST /api/fetch-history")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/fetch-history",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.post("/api/send-broadcast")
+async def send_broadcast(request: Request, authorization: Optional[str] = Header(None)):
+    """Send broadcast message to multiple recipients"""
+    try:
+        print(f"\n📢 POST /api/send-broadcast")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/send-broadcast",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.post("/api/send-story")
+async def send_story(request: Request, authorization: Optional[str] = Header(None)):
+    """Send WhatsApp story/status"""
+    try:
+        print(f"\n📸 POST /api/send-story")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/send-story",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.get("/api/broadcast/{list_id}")
+async def get_broadcast_list(list_id: str, authorization: Optional[str] = Header(None)):
+    """Get broadcast list info"""
+    try:
+        print(f"\n📋 GET /api/broadcast/{list_id}")
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.get(
+                f"{WHATSAPP_SERVICE_URL}/api/broadcast/{list_id}",
+                headers=headers
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+# ==================== NEWSLETTER OPERATIONS ====================
+
+@app.post("/api/newsletter/follow")
+async def newsletter_follow(request: Request, authorization: Optional[str] = Header(None)):
+    """Follow or unfollow a newsletter"""
+    try:
+        print(f"\n📰 POST /api/newsletter/follow")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/newsletter/follow",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+# ==================== PRIVACY SETTINGS ====================
+
+@app.post("/api/privacy/update")
+async def update_privacy_settings(request: Request, authorization: Optional[str] = Header(None)):
+    """Update privacy settings"""
+    try:
+        print(f"\n🔒 POST /api/privacy/update")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/privacy/update",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.get("/api/privacy/settings")
+async def get_privacy_settings(authorization: Optional[str] = Header(None)):
+    """Get privacy settings"""
+    try:
+        print(f"\n🔐 GET /api/privacy/settings")
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.get(
+                f"{WHATSAPP_SERVICE_URL}/api/privacy/settings",
+                headers=headers
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.post("/api/disappearing/set-default")
+async def set_default_disappearing(request: Request, authorization: Optional[str] = Header(None)):
+    """Update default disappearing message timer"""
+    try:
+        print(f"\n⏱️ POST /api/disappearing/set-default")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/disappearing/set-default",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.get("/api/blocklist")
+async def get_blocklist(authorization: Optional[str] = Header(None)):
+    """Fetch blocklist"""
+    try:
+        print(f"\n🚫 GET /api/blocklist")
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.get(
+                f"{WHATSAPP_SERVICE_URL}/api/blocklist",
+                headers=headers
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.post("/api/profile/update-picture")
+async def update_profile_picture(request: Request, authorization: Optional[str] = Header(None)):
+    """Update profile picture for user or group"""
+    try:
+        print(f"\n🖼️ POST /api/profile/update-picture")
+        body = await request.json()
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = get_headers(authorization)
+            response = await client.post(
+                f"{WHATSAPP_SERVICE_URL}/api/profile/update-picture",
+                headers=headers,
+                json=body
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.get("/api/stats")
+async def get_connection_stats(authorization: Optional[str] = Header(None)):
+    """Get connection statistics"""
+    try:
+        print(f"\n📊 GET /api/stats")
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.get(
+                f"{WHATSAPP_SERVICE_URL}/api/stats",
+                headers=headers
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+# ==================== CONTACTS ENDPOINT ====================
+
+@app.get("/api/contacts")
+async def get_contacts(authorization: Optional[str] = Header(None)):
+    """Get all contacts"""
+    try:
+        print(f"\n👥 GET /api/contacts")
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.get(
+                f"{WHATSAPP_SERVICE_URL}/api/contacts",
+                headers=headers
+            )
+            
+            print(f"   Response: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+@app.get("/api/connection-state")
+async def get_connection_state(authorization: Optional[str] = Header(None)):
+    """Get detailed connection state"""
+    try:
+        print(f"\n🔌 GET /api/connection-state")
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = get_headers(authorization)
+            response = await client.get(
+                f"{WHATSAPP_SERVICE_URL}/api/connection-state",
                 headers=headers
             )
             
